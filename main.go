@@ -322,7 +322,12 @@ func main() {
 		// run opencode with body as input, make sure to pass AGENTS.md as context and instructions
 		// to not use any tools and to only output code.
 
-		input := fmt.Sprintf("%s\n\n%s", issue.Fields.Summary, issue.Fields.Description.PlainText())
+		input := fmt.Sprintf(
+			"%s\n\n%s\n\n%s",
+			"do not interact with GIT directly, do not use any tools. do not ask for human input.",
+			issue.Fields.Summary,
+			issue.Fields.Description.PlainText(),
+		)
 
 		opencodeOutputBytes, err := exec.Command("opencode", "run", input).CombinedOutput()
 		opencodeOutput := strings.TrimSpace(string(opencodeOutputBytes))
