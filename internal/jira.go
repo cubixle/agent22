@@ -72,6 +72,24 @@ type JiraStatus struct {
 	Name string `json:"name"`
 }
 
+type jiraTransitionsResponse struct {
+	Transitions []jiraTransition `json:"transitions"`
+}
+
+type jiraTransition struct {
+	ID   string     `json:"id"`
+	Name string     `json:"name"`
+	To   JiraStatus `json:"to"`
+}
+
+type jiraTransitionRequest struct {
+	Transition jiraTransitionTarget `json:"transition"`
+}
+
+type jiraTransitionTarget struct {
+	ID string `json:"id"`
+}
+
 func SearchIssues(ctx context.Context, httpClient *http.Client, baseURL, email, apiToken string, payload JiraSearchRequest) ([]JiraIssue, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -111,4 +129,109 @@ func SearchIssues(ctx context.Context, httpClient *http.Client, baseURL, email, 
 	}
 
 	return result.Issues, nil
+}
+
+func TransitionIssueToStatus(ctx context.Context, httpClient *http.Client, baseURL, email, apiToken, issueKey, targetStatus string) error {
+	status := strings.TrimSpace(targetStatus)
+	if status == "" {
+		return nil
+	}
+
+	transitions, err := getIssueTransitions(ctx, httpClient, baseURL, email, apiToken, issueKey)
+	if err != nil {
+		return fmt.Errorf("get transitions: %w", err)
+	}
+
+	transitionID, ok := findTransitionIDByStatus(transitions, status)
+	if !ok {
+		available := make([]string, 0, len(transitions))
+		for _, t := range transitions {
+			name := strings.TrimSpace(t.To.Name)
+			if name == "" {
+				name = strings.TrimSpace(t.Name)
+			}
+
+			if name != "" {
+				available = append(available, name)
+			}
+		}
+
+		return fmt.Errorf("no transition found for status %q (available: %s)", status, strings.Join(available, ", "))
+	}
+
+	payload := jiraTransitionRequest{Transition: jiraTransitionTarget{ID: transitionID}}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal transition payload: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("%s/rest/api/3/issue/%s/transitions", strings.TrimRight(baseURL, "/"), issueKey)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create transition request: %w", err)
+	}
+
+	req.SetBasicAuth(email, apiToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("execute transition request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	rawBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("jira transition failed: status=%s body=%s", resp.Status, strings.TrimSpace(string(rawBody)))
+	}
+
+	return nil
+}
+
+func getIssueTransitions(ctx context.Context, httpClient *http.Client, baseURL, email, apiToken, issueKey string) ([]jiraTransition, error) {
+	endpoint := fmt.Sprintf("%s/rest/api/3/issue/%s/transitions", strings.TrimRight(baseURL, "/"), issueKey)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("create transitions lookup request: %w", err)
+	}
+
+	req.SetBasicAuth(email, apiToken)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("execute transitions lookup request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	rawBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("jira transitions lookup failed: status=%s body=%s", resp.Status, strings.TrimSpace(string(rawBody)))
+	}
+
+	var result jiraTransitionsResponse
+	if err := json.Unmarshal(rawBody, &result); err != nil {
+		return nil, fmt.Errorf("decode transitions response: %w", err)
+	}
+
+	return result.Transitions, nil
+}
+
+func findTransitionIDByStatus(transitions []jiraTransition, targetStatus string) (string, bool) {
+	target := strings.ToLower(strings.TrimSpace(targetStatus))
+	for _, transition := range transitions {
+		if strings.ToLower(strings.TrimSpace(transition.Name)) == target {
+			return transition.ID, true
+		}
+
+		if strings.ToLower(strings.TrimSpace(transition.To.Name)) == target {
+			return transition.ID, true
+		}
+	}
+
+	return "", false
 }
