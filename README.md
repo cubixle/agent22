@@ -43,14 +43,14 @@ In each project make sure to have a `.agent22.yml` config file.
 Here is an example config file
 
 ```yaml
-JIRA_EMAIL=
-JIRA_JQL="project = example AND status = 'ready'"
-JIRA_API_TOKEN=
+JIRA_EMAIL:
+JIRA_JQL: "project = example AND status = 'ready'"
+JIRA_API_TOKEN:
 
-***REMOVED***
-***REMOVED***
-GITEA_TOKEN=
-***REMOVED***
-***REMOVED***
-GITEA_BASE_URL=
+GITEA_REPO: agent22
+GITEA_OWNER: cubixle
+GITEA_TOKEN:
+GITEA_BASE_BRANCH: main
+GITEA_REMOTE: origin
+GITEA_BASE_URL:
 ```

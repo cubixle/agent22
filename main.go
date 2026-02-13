@@ -11,9 +11,10 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // ----------------------------------
@@ -49,7 +50,7 @@ type jiraIssue struct {
 type jiraIssueFields struct {
 	Summary     string          `json:"summary"`
 	Status      jiraStatus      `json:"status"`
-	Description jiraDescription `json:"description,omitempty"`
+	Description jiraDescription `json:"description"`
 }
 
 type jiraDescription struct {
@@ -173,6 +174,21 @@ type ResultCache struct {
 	cache map[string]jiraIssue
 }
 
+type agentConfig struct {
+	JiraEmail       string `yaml:"JIRA_EMAIL"`
+	JiraJQL         string `yaml:"JIRA_JQL"`
+	JiraAPIToken    string `yaml:"JIRA_API_TOKEN"`
+	JiraBaseURL     string `yaml:"JIRA_BASE_URL"`
+	JiraMaxResults  int    `yaml:"JIRA_MAX_RESULTS"`
+	MaxTries        int    `yaml:"MAX_TRIES"`
+	GiteaRepo       string `yaml:"GITEA_REPO"`
+	GiteaOwner      string `yaml:"GITEA_OWNER"`
+	GiteaToken      string `yaml:"GITEA_TOKEN"`
+	GiteaBaseBranch string `yaml:"GITEA_BASE_BRANCH"`
+	GiteaRemote     string `yaml:"GITEA_REMOTE"`
+	GiteaBaseURL    string `yaml:"GITEA_BASE_URL"`
+}
+
 func (r *ResultCache) Next() (jiraIssue, bool) {
 	for _, issue := range r.cache {
 		return issue, true
@@ -201,44 +217,59 @@ func (r *ResultCache) IsEmpty() bool {
 	return len(r.cache) == 0
 }
 
+func shouldSkipIssue(issue jiraIssue, cache *ResultCache) bool {
+	body := issue.Fields.Description.PlainText()
+	lowerBody := strings.ToLower(body)
+
+	if body == "" {
+		log.Printf("Issue %s has no description. Skipping.", issue.Key)
+		cache.Delete(issue.Key)
+
+		return true
+	}
+
+	if strings.Contains(lowerBody, "human") {
+		log.Printf("Issue %s requires human intervention. Skipping.", issue.Key)
+		cache.Delete(issue.Key)
+
+		return true
+	}
+
+	if strings.Contains(lowerBody, "blocked") {
+		log.Printf("Issue %s is blocked. Skipping.", issue.Key)
+		cache.Delete(issue.Key)
+
+		return true
+	}
+
+	if !strings.Contains(lowerBody, "tester") {
+		log.Printf("Issue %s does not mention tester. Skipping.", issue.Key)
+		cache.Delete(issue.Key)
+
+		return true
+	}
+
+	return false
+}
+
 func main() {
-	baseURL := strings.TrimRight(getEnvOrDefault("JIRA_BASE_URL", "https://scopra.atlassian.net"), "/")
-	email, err := requireEnv("JIRA_EMAIL")
+	config, err := loadAgentConfig(".agent22.yml")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	apiToken, err := requireEnv("JIRA_API_TOKEN")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	maxTries := getEnvAsIntOrDefault("MAX_TRIES", 3)
-
-	jql := getEnvOrDefault("JIRA_JQL", `project = DEV AND status = 'To Do'`)
-	maxResults := getEnvAsIntOrDefault("JIRA_MAX_RESULTS", 10)
-	giteaBaseURL, err := requireEnv("GITEA_BASE_URL")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	giteaToken, err := requireEnv("GITEA_TOKEN")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	giteaOwner, err := requireEnv("GITEA_OWNER")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	giteaRepo, err := requireEnv("GITEA_REPO")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	gitRemote := getEnvOrDefault("GIT_REMOTE", "origin")
-	baseBranch := getEnvOrDefault("GIT_BASE_BRANCH", "main")
+	baseURL := strings.TrimRight(config.JiraBaseURL, "/")
+	email := config.JiraEmail
+	apiToken := config.JiraAPIToken
+	maxTries := config.MaxTries
+	jql := config.JiraJQL
+	maxResults := config.JiraMaxResults
+	giteaBaseURL := config.GiteaBaseURL
+	giteaToken := config.GiteaToken
+	giteaOwner := config.GiteaOwner
+	giteaRepo := config.GiteaRepo
+	gitRemote := config.GiteaRemote
+	baseBranch := config.GiteaBaseBranch
 
 	httpClient := &http.Client{Timeout: 20 * time.Second}
 
@@ -255,6 +286,7 @@ func main() {
 
 		if cache.IsEmpty() {
 			tries++
+
 			issues, err := searchIssues(context.Background(), httpClient, baseURL, email, apiToken, jiraSearchRequest{
 				JQL:        jql,
 				MaxResults: maxResults,
@@ -277,32 +309,13 @@ func main() {
 		issue, ok := cache.Next()
 		if !ok {
 			fmt.Println("No more issues in cache.")
+
 			continue
 		}
 
 		fmt.Printf("- Working on: %s [%s] %s\n", issue.Key, issue.Fields.Status.Name, issue.Fields.Summary)
 
-		body := issue.Fields.Description.PlainText()
-		if body == "" {
-			log.Printf("Issue %s has no description. Skipping.", issue.Key)
-			cache.Delete(issue.Key)
-		}
-
-		if strings.Contains(strings.ToLower(body), "HUMAN") {
-			log.Printf("Issue %s requires human intervention. Skipping.", issue.Key)
-			cache.Delete(issue.Key)
-			continue
-		}
-
-		if strings.Contains(strings.ToLower(body), "blocked") {
-			log.Printf("Issue %s is blocked. Skipping.", issue.Key)
-			cache.Delete(issue.Key)
-			continue
-		}
-
-		if !strings.Contains(strings.ToLower(body), "tester") {
-			log.Printf("Issue %s does not mention tester. Skipping.", issue.Key)
-			cache.Delete(issue.Key)
+		if shouldSkipIssue(issue, cache) {
 			continue
 		}
 
@@ -330,11 +343,14 @@ func main() {
 		)
 
 		opencodeOutputBytes, err := exec.Command("opencode", "run", input).CombinedOutput()
-		opencodeOutput := strings.TrimSpace(string(opencodeOutputBytes))
 		if err != nil {
+			opencodeOutput := strings.TrimSpace(string(opencodeOutputBytes))
 			log.Printf("Failed to execute opencode for issue %s: %v (output: %s). Exiting.", issue.Key, err, opencodeOutput)
+
 			return
 		}
+
+		opencodeOutput := strings.TrimSpace(string(opencodeOutputBytes))
 
 		fmt.Printf("Executed opencode for issue %s\n", issue.Key)
 
@@ -377,7 +393,7 @@ func main() {
 				giteaRepo,
 				giteaPullRequestRequest{
 					Title: fmt.Sprintf("%s: %s", issue.Key, issue.Fields.Summary),
-					Body:  fmt.Sprintf("Automated merge request for %s", issue.Key),
+					Body:  formatPullRequestBody(issue.Key, opencodeOutput),
 					Head:  issue.Key,
 					Base:  baseBranch,
 				},
@@ -389,7 +405,9 @@ func main() {
 
 			fmt.Printf("Created merge request #%d: %s\n", pr.Number, pr.HTMLURL)
 		}
+
 		fmt.Printf("Changing branch back to main\n")
+
 		err = exec.Command("git", "checkout", "main").Run()
 		if err != nil {
 			log.Printf("Failed to change back to main branch after working on issue %s: %v. Exiting.", issue.Key, err)
@@ -399,7 +417,6 @@ func main() {
 		// remove from cache if work is complete.
 		time.Sleep(8 * time.Second) // simulate work
 	}
-
 }
 
 func searchIssues(ctx context.Context, httpClient *http.Client, baseURL, email, apiToken string, payload jiraSearchRequest) ([]jiraIssue, error) {
@@ -411,6 +428,7 @@ func searchIssues(ctx context.Context, httpClient *http.Client, baseURL, email, 
 	log.Printf("Searching JIRA with JQL: %s", body)
 
 	endpoint := baseURL + "/rest/api/3/search/jql"
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create jira request: %w", err)
@@ -443,8 +461,7 @@ func searchIssues(ctx context.Context, httpClient *http.Client, baseURL, email, 
 }
 
 func pushBranch(branchName, remote string) error {
-	cmd := exec.Command("git", "push", "-u", remote, branchName)
-	output, err := cmd.CombinedOutput()
+	output, err := exec.Command("git", "push", "-u", remote, branchName).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("push branch %s: %w (output: %s)", branchName, err, strings.TrimSpace(string(output)))
 	}
@@ -453,12 +470,9 @@ func pushBranch(branchName, remote string) error {
 }
 
 func checkoutOrCreateBranch(branchName string) error {
-	checkCmd := exec.Command("git", "rev-parse", "--verify", "--quiet", branchName)
-	checkOutput, err := checkCmd.CombinedOutput()
-
+	checkOutput, err := exec.Command("git", "rev-parse", "--verify", "--quiet", branchName).CombinedOutput()
 	if err == nil {
-		checkoutCmd := exec.Command("git", "checkout", branchName)
-		checkoutOutput, checkoutErr := checkoutCmd.CombinedOutput()
+		checkoutOutput, checkoutErr := exec.Command("git", "checkout", branchName).CombinedOutput()
 		if checkoutErr != nil {
 			return fmt.Errorf("checkout existing branch %s: %w (output: %s)", branchName, checkoutErr, strings.TrimSpace(string(checkoutOutput)))
 		}
@@ -470,8 +484,7 @@ func checkoutOrCreateBranch(branchName string) error {
 		return fmt.Errorf("verify branch %s: %w (output: %s)", branchName, err, strings.TrimSpace(string(checkOutput)))
 	}
 
-	createCmd := exec.Command("git", "checkout", "-b", branchName)
-	createOutput, createErr := createCmd.CombinedOutput()
+	createOutput, createErr := exec.Command("git", "checkout", "-b", branchName).CombinedOutput()
 	if createErr != nil {
 		return fmt.Errorf("create branch %s: %w (output: %s)", branchName, createErr, strings.TrimSpace(string(createOutput)))
 	}
@@ -480,14 +493,12 @@ func checkoutOrCreateBranch(branchName string) error {
 }
 
 func syncBaseBranch(remote, baseBranch string) error {
-	checkoutCmd := exec.Command("git", "checkout", baseBranch)
-	checkoutOutput, err := checkoutCmd.CombinedOutput()
+	checkoutOutput, err := exec.Command("git", "checkout", baseBranch).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("checkout base branch %s: %w (output: %s)", baseBranch, err, strings.TrimSpace(string(checkoutOutput)))
 	}
 
-	pullCmd := exec.Command("git", "pull", "--ff-only", remote, baseBranch)
-	pullOutput, err := pullCmd.CombinedOutput()
+	pullOutput, err := exec.Command("git", "pull", "--ff-only", remote, baseBranch).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("pull base branch %s from %s: %w (output: %s)", baseBranch, remote, err, strings.TrimSpace(string(pullOutput)))
 	}
@@ -496,8 +507,7 @@ func syncBaseBranch(remote, baseBranch string) error {
 }
 
 func stageAndCommitChanges(issueKey, summary string) error {
-	statusCmd := exec.Command("git", "status", "--porcelain")
-	statusOutput, err := statusCmd.CombinedOutput()
+	statusOutput, err := exec.Command("git", "status", "--porcelain").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("check git status: %w (output: %s)", err, strings.TrimSpace(string(statusOutput)))
 	}
@@ -507,15 +517,14 @@ func stageAndCommitChanges(issueKey, summary string) error {
 		return nil
 	}
 
-	addCmd := exec.Command("git", "add", "-A")
-	addOutput, err := addCmd.CombinedOutput()
+	addOutput, err := exec.Command("git", "add", "-A").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("stage files: %w (output: %s)", err, strings.TrimSpace(string(addOutput)))
 	}
 
 	message := fmt.Sprintf("%s: %s", issueKey, summary)
-	commitCmd := exec.Command("git", "commit", "-m", message)
-	commitOutput, err := commitCmd.CombinedOutput()
+
+	commitOutput, err := exec.Command("git", "commit", "-m", message).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("create commit: %w (output: %s)", err, strings.TrimSpace(string(commitOutput)))
 	}
@@ -581,7 +590,7 @@ func findOpenPullRequest(
 		url.PathEscape(repo),
 	)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("create gitea pull request lookup request: %w", err)
 	}
@@ -615,48 +624,82 @@ func findOpenPullRequest(
 	return nil, nil
 }
 
-func requireEnv(key string) (string, error) {
-	value := normalizeEnvValue(os.Getenv(key))
-	if value == "" {
-		return "", fmt.Errorf("missing required environment variable: %s", key)
-	}
-
-	return value, nil
-}
-
-func getEnvOrDefault(key, defaultValue string) string {
-	value := normalizeEnvValue(os.Getenv(key))
-	if value == "" {
-		return defaultValue
-	}
-
-	return value
-}
-
-func getEnvAsIntOrDefault(key string, defaultValue int) int {
-	value := normalizeEnvValue(os.Getenv(key))
-	if value == "" {
-		return defaultValue
-	}
-
-	parsed, err := strconv.Atoi(value)
+func loadAgentConfig(path string) (agentConfig, error) {
+	content, err := os.ReadFile(path)
 	if err != nil {
-		return defaultValue
+		return agentConfig{}, fmt.Errorf("read config file %s: %w", path, err)
 	}
 
-	return parsed
+	var config agentConfig
+	if err := yaml.Unmarshal(content, &config); err != nil {
+		return agentConfig{}, fmt.Errorf("parse YAML config %s: %w", path, err)
+	}
+
+	config.applyDefaults()
+
+	if err := config.validate(); err != nil {
+		return agentConfig{}, err
+	}
+
+	return config, nil
 }
 
-func normalizeEnvValue(value string) string {
-	cleaned := strings.TrimSpace(value)
-	cleaned = strings.TrimSuffix(cleaned, ",")
-	cleaned = strings.TrimSpace(cleaned)
-
-	if len(cleaned) >= 2 {
-		if (cleaned[0] == '"' && cleaned[len(cleaned)-1] == '"') || (cleaned[0] == '\'' && cleaned[len(cleaned)-1] == '\'') {
-			cleaned = cleaned[1 : len(cleaned)-1]
-		}
+func (c *agentConfig) applyDefaults() {
+	if c.JiraBaseURL == "" {
+		c.JiraBaseURL = "https://scopra.atlassian.net"
 	}
 
-	return strings.TrimSpace(cleaned)
+	if c.JiraJQL == "" {
+		c.JiraJQL = `project = DEV AND status = 'To Do'`
+	}
+
+	if c.JiraMaxResults <= 0 {
+		c.JiraMaxResults = 10
+	}
+
+	if c.MaxTries <= 0 {
+		c.MaxTries = 3
+	}
+
+	if c.GiteaRemote == "" {
+		c.GiteaRemote = "origin"
+	}
+
+	if c.GiteaBaseBranch == "" {
+		c.GiteaBaseBranch = "main"
+	}
+}
+
+func (c agentConfig) validate() error {
+	missing := make([]string, 0, 7)
+
+	if c.JiraEmail == "" {
+		missing = append(missing, "JIRA_EMAIL")
+	}
+
+	if c.JiraAPIToken == "" {
+		missing = append(missing, "JIRA_API_TOKEN")
+	}
+
+	if c.GiteaBaseURL == "" {
+		missing = append(missing, "GITEA_BASE_URL")
+	}
+
+	if c.GiteaToken == "" {
+		missing = append(missing, "GITEA_TOKEN")
+	}
+
+	if c.GiteaOwner == "" {
+		missing = append(missing, "GITEA_OWNER")
+	}
+
+	if c.GiteaRepo == "" {
+		missing = append(missing, "GITEA_REPO")
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required config values in .agent22.yml: %s", strings.Join(missing, ", "))
+	}
+
+	return nil
 }
