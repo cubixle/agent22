@@ -306,6 +306,11 @@ func main() {
 			continue
 		}
 
+		if err := syncBaseBranch(gitRemote, baseBranch); err != nil {
+			log.Printf("Failed to pull latest changes from %s/%s before processing issue %s: %v. Exiting.", gitRemote, baseBranch, issue.Key, err)
+			return
+		}
+
 		err := checkoutOrCreateBranch(issue.Key)
 		if err != nil {
 			log.Printf("Failed to checkout/create branch for issue %s: %v. Exiting.", issue.Key, err)
@@ -317,7 +322,12 @@ func main() {
 		// run opencode with body as input, make sure to pass AGENTS.md as context and instructions
 		// to not use any tools and to only output code.
 
-		input := fmt.Sprintf("%s\n\n%s", issue.Fields.Summary, issue.Fields.Description.PlainText())
+		input := fmt.Sprintf(
+			"%s\n\n%s\n\n%s",
+			"do not interact with GIT directly, do not use any tools. do not ask for human input.",
+			issue.Fields.Summary,
+			issue.Fields.Description.PlainText(),
+		)
 
 		opencodeOutputBytes, err := exec.Command("opencode", "run", input).CombinedOutput()
 		opencodeOutput := strings.TrimSpace(string(opencodeOutputBytes))
@@ -445,6 +455,22 @@ func checkoutOrCreateBranch(branchName string) error {
 	createOutput, createErr := createCmd.CombinedOutput()
 	if createErr != nil {
 		return fmt.Errorf("create branch %s: %w (output: %s)", branchName, createErr, strings.TrimSpace(string(createOutput)))
+	}
+
+	return nil
+}
+
+func syncBaseBranch(remote, baseBranch string) error {
+	checkoutCmd := exec.Command("git", "checkout", baseBranch)
+	checkoutOutput, err := checkoutCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("checkout base branch %s: %w (output: %s)", baseBranch, err, strings.TrimSpace(string(checkoutOutput)))
+	}
+
+	pullCmd := exec.Command("git", "pull", "--ff-only", remote, baseBranch)
+	pullOutput, err := pullCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("pull base branch %s from %s: %w (output: %s)", baseBranch, remote, err, strings.TrimSpace(string(pullOutput)))
 	}
 
 	return nil
