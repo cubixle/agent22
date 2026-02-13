@@ -350,26 +350,45 @@ func main() {
 
 		fmt.Printf("Pushed branch %s to remote %s\n", issue.Key, gitRemote)
 
-		pr, err := createGiteaMergeRequest(
+		existingPR, err := findOpenPullRequest(
 			context.Background(),
 			httpClient,
 			giteaBaseURL,
 			giteaToken,
 			giteaOwner,
 			giteaRepo,
-			giteaPullRequestRequest{
-				Title: fmt.Sprintf("%s: %s", issue.Key, issue.Fields.Summary),
-				Body:  formatPullRequestBody(issue.Key, opencodeOutput),
-				Head:  issue.Key,
-				Base:  baseBranch,
-			},
+			issue.Key,
+			baseBranch,
 		)
 		if err != nil {
-			log.Printf("Failed to create merge request for issue %s: %v. Exiting.", issue.Key, err)
+			log.Printf("Failed to check existing merge request for issue %s: %v. Exiting.", issue.Key, err)
 			return
 		}
 
-		fmt.Printf("Created merge request #%d: %s\n", pr.Number, pr.HTMLURL)
+		if existingPR != nil {
+			fmt.Printf("Merge request already exists #%d: %s. Skipping creation.\n", existingPR.Number, existingPR.HTMLURL)
+		} else {
+			pr, err := createGiteaMergeRequest(
+				context.Background(),
+				httpClient,
+				giteaBaseURL,
+				giteaToken,
+				giteaOwner,
+				giteaRepo,
+				giteaPullRequestRequest{
+					Title: fmt.Sprintf("%s: %s", issue.Key, issue.Fields.Summary),
+					Body:  fmt.Sprintf("Automated merge request for %s", issue.Key),
+					Head:  issue.Key,
+					Base:  baseBranch,
+				},
+			)
+			if err != nil {
+				log.Printf("Failed to create merge request for issue %s: %v. Exiting.", issue.Key, err)
+				return
+			}
+
+			fmt.Printf("Created merge request #%d: %s\n", pr.Number, pr.HTMLURL)
+		}
 		fmt.Printf("Changing branch back to main\n")
 		err = exec.Command("git", "checkout", "main").Run()
 		if err != nil {
@@ -548,6 +567,52 @@ func createGiteaMergeRequest(
 	}
 
 	return result, nil
+}
+
+func findOpenPullRequest(
+	ctx context.Context,
+	httpClient *http.Client,
+	baseURL, token, owner, repo, headBranch, baseBranch string,
+) (*giteaPullRequestResponse, error) {
+	endpoint := fmt.Sprintf(
+		"%s/api/v1/repos/%s/%s/pulls?state=open",
+		strings.TrimRight(baseURL, "/"),
+		url.PathEscape(owner),
+		url.PathEscape(repo),
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create gitea pull request lookup request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "token "+token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("execute gitea pull request lookup request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	rawBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("gitea pull request lookup failed: status=%s body=%s", resp.Status, strings.TrimSpace(string(rawBody)))
+	}
+
+	var pulls []giteaPullRequestResponse
+	if err := json.Unmarshal(rawBody, &pulls); err != nil {
+		return nil, fmt.Errorf("decode gitea pull request lookup response: %w", err)
+	}
+
+	for _, pr := range pulls {
+		if pr.HeadBranch == headBranch && pr.BaseBranch == baseBranch {
+			matched := pr
+			return &matched, nil
+		}
+	}
+
+	return nil, nil
 }
 
 func requireEnv(key string) (string, error) {
