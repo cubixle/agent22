@@ -29,6 +29,19 @@ func main() {
 		log.Fatal(err)
 	}
 
+	if config.MaxTries <= 0 {
+		config.MaxTries = 3
+	}
+
+	if config.JiraMaxResults <= 0 {
+		config.JiraMaxResults = 5
+	}
+
+	// print out none-sensitive config values for verification
+	fmt.Printf("JIRA Base URL: %s\n", config.JiraBaseURL)
+	fmt.Printf("JIRA JQL: %s\n", config.JiraJQL)
+	fmt.Printf("Max Tries: %d\n", config.MaxTries)
+
 	if err := internal.RunAgent(config); err != nil {
 		log.Fatal(err)
 	}

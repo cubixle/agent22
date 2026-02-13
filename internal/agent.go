@@ -12,12 +12,14 @@ import (
 )
 
 type AgentConfig struct {
-	JiraEmail       string `yaml:"JIRA_EMAIL"`
-	JiraJQL         string `yaml:"JIRA_JQL"`
-	JiraAPIToken    string `yaml:"JIRA_API_TOKEN"`
-	JiraBaseURL     string `yaml:"JIRA_BASE_URL"`
-	JiraMaxResults  int    `yaml:"JIRA_MAX_RESULTS"`
-	MaxTries        int    `yaml:"MAX_TRIES"`
+	JiraEmail      string `yaml:"JIRA_EMAIL"`
+	JiraJQL        string `yaml:"JIRA_JQL"`
+	JiraAPIToken   string `yaml:"JIRA_API_TOKEN"`
+	JiraBaseURL    string `yaml:"JIRA_BASE_URL"`
+	JiraMaxResults int    `yaml:"JIRA_MAX_RESULTS"`
+
+	MaxTries int `yaml:"MAX_TRIES"`
+
 	GiteaRepo       string `yaml:"GITEA_REPO"`
 	GiteaOwner      string `yaml:"GITEA_OWNER"`
 	GiteaToken      string `yaml:"GITEA_TOKEN"`
