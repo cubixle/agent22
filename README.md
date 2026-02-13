@@ -46,6 +46,8 @@ Here is an example config file
 JIRA_EMAIL:
 JIRA_JQL: "project = example AND status = 'ready'"
 JIRA_API_TOKEN:
+JIRA_BASE_URL:
+JIRA_PR_STATUS: "PR Ready"
 
 GITEA_REPO: agent22
 GITEA_OWNER: cubixle

@@ -37,9 +37,14 @@ func main() {
 		config.JiraMaxResults = 5
 	}
 
+	if strings.TrimSpace(config.JiraPRStatus) == "" {
+		config.JiraPRStatus = "PR Ready"
+	}
+
 	// print out none-sensitive config values for verification
 	fmt.Printf("JIRA Base URL: %s\n", config.JiraBaseURL)
 	fmt.Printf("JIRA JQL: %s\n", config.JiraJQL)
+	fmt.Printf("JIRA PR Status: %s\n", config.JiraPRStatus)
 	fmt.Printf("Max Tries: %d\n", config.MaxTries)
 
 	if err := internal.RunAgent(config); err != nil {

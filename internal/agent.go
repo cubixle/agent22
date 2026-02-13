@@ -17,6 +17,7 @@ type AgentConfig struct {
 	JiraAPIToken   string `yaml:"JIRA_API_TOKEN"`
 	JiraBaseURL    string `yaml:"JIRA_BASE_URL"`
 	JiraMaxResults int    `yaml:"JIRA_MAX_RESULTS"`
+	JiraPRStatus   string `yaml:"JIRA_PR_STATUS"`
 
 	MaxTries int `yaml:"MAX_TRIES"`
 
@@ -148,7 +149,7 @@ never run git clean (including -fd, -fdx, or -fdX) and never delete local config
 				config.GiteaRepo,
 				GiteaPullRequestRequest{
 					Title: fmt.Sprintf("%s: %s", issue.Key, issue.Fields.Summary),
-					Body:  formatPullRequestBody(issue.Key, opencodeOutput),
+					Body:  formatPullRequestBody(issue.Key, issue.Fields.Summary, opencodeOutput),
 					Head:  issue.Key,
 					Base:  config.GiteaBaseBranch,
 				},
@@ -159,6 +160,20 @@ never run git clean (including -fd, -fdx, or -fdX) and never delete local config
 
 			fmt.Printf("Created merge request #%d: %s\n", pr.Number, pr.HTMLURL)
 		}
+
+		if err := TransitionIssueToStatus(
+			context.Background(),
+			httpClient,
+			config.JiraBaseURL,
+			config.JiraEmail,
+			config.JiraAPIToken,
+			issue.Key,
+			config.JiraPRStatus,
+		); err != nil {
+			return fmt.Errorf("transition issue %s to %s: %w", issue.Key, config.JiraPRStatus, err)
+		}
+
+		fmt.Printf("Updated issue %s status to %s\n", issue.Key, config.JiraPRStatus)
 
 		fmt.Printf("Changing branch back to main\n")
 
@@ -206,7 +221,7 @@ func shouldSkipIssue(issue JiraIssue, cache *ResultCache) bool {
 	return false
 }
 
-func formatPullRequestBody(issueKey, opencodeOutput string) string {
+func formatPullRequestBody(issueKey, issueSummary, opencodeOutput string) string {
 	output := strings.TrimSpace(opencodeOutput)
 	if output == "" {
 		output = "(no output)"
@@ -218,8 +233,9 @@ func formatPullRequestBody(issueKey, opencodeOutput string) string {
 	}
 
 	return fmt.Sprintf(
-		"Automated merge request for %s\n\n## Opencode output\n\n```text\n%s\n```",
+		"Automated merge request for %s\n\n## Description\n%s\n\n## Opencode output\n\n```text\n%s\n```",
 		issueKey,
+		issueSummary,
 		output,
 	)
 }
