@@ -87,10 +87,12 @@ func RunAgent(config AgentConfig) error {
 
 		input := fmt.Sprintf(
 			"%s\n\n%s\n\n%s",
-			"do not interact with GIT directly, do not use any tools. do not ask for human input.",
+			"do not interact with GIT directly, do not ask for human input.",
 			issue.Fields.Summary,
 			issue.Fields.Description.PlainText(),
 		)
+
+		fmt.Printf("Running opencode for issue %s with input:\n%s\n", issue.Key, input)
 
 		opencodeOutputBytes, err := exec.Command("opencode", "run", input).CombinedOutput()
 		if err != nil {
