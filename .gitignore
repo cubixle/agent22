@@ -1,2 +1,4 @@
 .env
 vendor
+.agent22.yml
+.agent22.yaml
