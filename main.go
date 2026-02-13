@@ -102,13 +102,71 @@ type giteaPullRequestResponse struct {
 	HTMLURL     string `json:"html_url"`
 	URL         string `json:"url"`
 	Title       string `json:"title"`
-	HeadBranch  string `json:"head"`
-	BaseBranch  string `json:"base"`
+	HeadBranch  string `json:"-"`
+	BaseBranch  string `json:"-"`
 	Merged      bool   `json:"merged"`
 	Draft       bool   `json:"draft"`
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
 	MergeStatus string `json:"mergeable_state"`
+}
+
+func (r *giteaPullRequestResponse) UnmarshalJSON(data []byte) error {
+	type alias giteaPullRequestResponse
+
+	var aux struct {
+		alias
+		Head json.RawMessage `json:"head"`
+		Base json.RawMessage `json:"base"`
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	*r = giteaPullRequestResponse(aux.alias)
+	r.HeadBranch = decodeBranchRef(aux.Head)
+	r.BaseBranch = decodeBranchRef(aux.Base)
+
+	return nil
+}
+
+func decodeBranchRef(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+
+	var value string
+	if err := json.Unmarshal(raw, &value); err == nil {
+		return value
+	}
+
+	var ref struct {
+		Ref string `json:"ref"`
+	}
+	if err := json.Unmarshal(raw, &ref); err == nil {
+		return ref.Ref
+	}
+
+	return ""
+}
+
+func formatPullRequestBody(issueKey, opencodeOutput string) string {
+	output := strings.TrimSpace(opencodeOutput)
+	if output == "" {
+		output = "(no output)"
+	}
+
+	const maxOutputLen = 8000
+	if len(output) > maxOutputLen {
+		output = output[:maxOutputLen] + "\n\n[truncated]"
+	}
+
+	return fmt.Sprintf(
+		"Automated merge request for %s\n\n## Opencode output\n\n```text\n%s\n```",
+		issueKey,
+		output,
+	)
 }
 
 type ResultCache struct {
@@ -155,7 +213,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	maxTries := getEnvAsIntOrDefault("MAX_TRIES", 5)
+	maxTries := getEnvAsIntOrDefault("MAX_TRIES", 3)
 
 	jql := getEnvOrDefault("JIRA_JQL", `project = DEV AND status = 'To Do'`)
 	maxResults := getEnvAsIntOrDefault("JIRA_MAX_RESULTS", 10)
@@ -242,27 +300,38 @@ func main() {
 			continue
 		}
 
-		// run: git checkout -b key
-		err := exec.Command("git", "checkout", "-b", issue.Key).Run()
+		if !strings.Contains(strings.ToLower(body), "tester") {
+			log.Printf("Issue %s does not mention tester. Skipping.", issue.Key)
+			cache.Delete(issue.Key)
+			continue
+		}
+
+		err := checkoutOrCreateBranch(issue.Key)
 		if err != nil {
-			log.Printf("Failed to create branch for issue %s: %v. Exiting.", issue.Key, err)
+			log.Printf("Failed to checkout/create branch for issue %s: %v. Exiting.", issue.Key, err)
 			return
 		}
 
 		fmt.Printf("Changed branch to %s\n", issue.Key)
 
-		// remove after testing
-		body = "just saying Hi!"
-
 		// run opencode with body as input, make sure to pass AGENTS.md as context and instructions
 		// to not use any tools and to only output code.
-		err = exec.Command("opencode", "run", body).Run()
+
+		input := fmt.Sprintf("%s\n\n%s", issue.Fields.Summary, issue.Fields.Description.PlainText())
+
+		opencodeOutputBytes, err := exec.Command("opencode", "run", input).CombinedOutput()
+		opencodeOutput := strings.TrimSpace(string(opencodeOutputBytes))
 		if err != nil {
-			log.Printf("Failed to execute opencode for issue %s: %v. Exiting.", issue.Key, err)
+			log.Printf("Failed to execute opencode for issue %s: %v (output: %s). Exiting.", issue.Key, err, opencodeOutput)
 			return
 		}
 
 		fmt.Printf("Executed opencode for issue %s\n", issue.Key)
+
+		if err := stageAndCommitChanges(issue.Key, issue.Fields.Summary); err != nil {
+			log.Printf("Failed to stage/commit changes for issue %s: %v. Exiting.", issue.Key, err)
+			return
+		}
 
 		if err := pushBranch(issue.Key, gitRemote); err != nil {
 			log.Printf("Failed to push branch for issue %s: %v. Exiting.", issue.Key, err)
@@ -280,7 +349,7 @@ func main() {
 			giteaRepo,
 			giteaPullRequestRequest{
 				Title: fmt.Sprintf("%s: %s", issue.Key, issue.Fields.Summary),
-				Body:  fmt.Sprintf("Automated merge request for %s", issue.Key),
+				Body:  formatPullRequestBody(issue.Key, opencodeOutput),
 				Head:  issue.Key,
 				Base:  baseBranch,
 			},
@@ -349,6 +418,61 @@ func pushBranch(branchName, remote string) error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("push branch %s: %w (output: %s)", branchName, err, strings.TrimSpace(string(output)))
+	}
+
+	return nil
+}
+
+func checkoutOrCreateBranch(branchName string) error {
+	checkCmd := exec.Command("git", "rev-parse", "--verify", "--quiet", branchName)
+	checkOutput, err := checkCmd.CombinedOutput()
+
+	if err == nil {
+		checkoutCmd := exec.Command("git", "checkout", branchName)
+		checkoutOutput, checkoutErr := checkoutCmd.CombinedOutput()
+		if checkoutErr != nil {
+			return fmt.Errorf("checkout existing branch %s: %w (output: %s)", branchName, checkoutErr, strings.TrimSpace(string(checkoutOutput)))
+		}
+
+		return nil
+	}
+
+	if strings.TrimSpace(string(checkOutput)) != "" {
+		return fmt.Errorf("verify branch %s: %w (output: %s)", branchName, err, strings.TrimSpace(string(checkOutput)))
+	}
+
+	createCmd := exec.Command("git", "checkout", "-b", branchName)
+	createOutput, createErr := createCmd.CombinedOutput()
+	if createErr != nil {
+		return fmt.Errorf("create branch %s: %w (output: %s)", branchName, createErr, strings.TrimSpace(string(createOutput)))
+	}
+
+	return nil
+}
+
+func stageAndCommitChanges(issueKey, summary string) error {
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusOutput, err := statusCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("check git status: %w (output: %s)", err, strings.TrimSpace(string(statusOutput)))
+	}
+
+	if strings.TrimSpace(string(statusOutput)) == "" {
+		log.Printf("No file changes detected for %s. Skipping commit.", issueKey)
+		return nil
+	}
+
+	addCmd := exec.Command("git", "add", "-A")
+	addOutput, err := addCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("stage files: %w (output: %s)", err, strings.TrimSpace(string(addOutput)))
+	}
+
+	message := fmt.Sprintf("%s: %s", issueKey, summary)
+	commitCmd := exec.Command("git", "commit", "-m", message)
+	commitOutput, err := commitCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("create commit: %w (output: %s)", err, strings.TrimSpace(string(commitOutput)))
 	}
 
 	return nil
