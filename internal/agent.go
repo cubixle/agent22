@@ -85,9 +85,15 @@ func RunAgent(config AgentConfig) error {
 
 		fmt.Printf("Changed branch to %s\n", issue.Key)
 
+		instructions := `
+do not interact with GIT directly.
+do not ask for human input. 
+never run git clean (including -fd, -fdx, or -fdX) and never delete local config files like .env* or .agent22.yml.
+		`
+
 		input := fmt.Sprintf(
 			"%s\n\n%s\n\n%s",
-			"do not interact with GIT directly, do not ask for human input.",
+			instructions,
 			issue.Fields.Summary,
 			issue.Fields.Description.PlainText(),
 		)
