@@ -306,6 +306,11 @@ func main() {
 			continue
 		}
 
+		if err := syncBaseBranch(gitRemote, baseBranch); err != nil {
+			log.Printf("Failed to pull latest changes from %s/%s before processing issue %s: %v. Exiting.", gitRemote, baseBranch, issue.Key, err)
+			return
+		}
+
 		err := checkoutOrCreateBranch(issue.Key)
 		if err != nil {
 			log.Printf("Failed to checkout/create branch for issue %s: %v. Exiting.", issue.Key, err)
@@ -445,6 +450,22 @@ func checkoutOrCreateBranch(branchName string) error {
 	createOutput, createErr := createCmd.CombinedOutput()
 	if createErr != nil {
 		return fmt.Errorf("create branch %s: %w (output: %s)", branchName, createErr, strings.TrimSpace(string(createOutput)))
+	}
+
+	return nil
+}
+
+func syncBaseBranch(remote, baseBranch string) error {
+	checkoutCmd := exec.Command("git", "checkout", baseBranch)
+	checkoutOutput, err := checkoutCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("checkout base branch %s: %w (output: %s)", baseBranch, err, strings.TrimSpace(string(checkoutOutput)))
+	}
+
+	pullCmd := exec.Command("git", "pull", "--ff-only", remote, baseBranch)
+	pullOutput, err := pullCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("pull base branch %s from %s: %w (output: %s)", baseBranch, remote, err, strings.TrimSpace(string(pullOutput)))
 	}
 
 	return nil
