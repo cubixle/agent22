@@ -108,6 +108,8 @@ never run git clean (including -fd, -fdx, or -fdX) and never delete local config
 
 		opencodeOutput := strings.TrimSpace(string(opencodeOutputBytes))
 
+		fmt.Printf("Opencode output for issue %s:\n%s\n", issue.Key, opencodeOutput)
+
 		fmt.Printf("Executed opencode for issue %s\n", issue.Key)
 
 		if err := StageAndCommitChanges(issue.Key, issue.Fields.Summary); err != nil {
