@@ -16,12 +16,17 @@ func PushBranch(branchName, remote string) error {
 	return nil
 }
 
-func CheckoutOrCreateBranch(branchName string) error {
+func CheckoutOrCreateBranch(branchName, baseBranch string) error {
 	checkOutput, err := exec.Command("git", "rev-parse", "--verify", "--quiet", branchName).CombinedOutput()
 	if err == nil {
 		checkoutOutput, checkoutErr := exec.Command("git", "checkout", branchName).CombinedOutput()
 		if checkoutErr != nil {
 			return fmt.Errorf("checkout existing branch %s: %w (output: %s)", branchName, checkoutErr, strings.TrimSpace(string(checkoutOutput)))
+		}
+
+		mergeOutput, mergeErr := exec.Command("git", "merge", baseBranch).CombinedOutput()
+		if mergeErr != nil {
+			return fmt.Errorf("merge base branch %s into %s: %w (output: %s)", baseBranch, branchName, mergeErr, strings.TrimSpace(string(mergeOutput)))
 		}
 
 		return nil

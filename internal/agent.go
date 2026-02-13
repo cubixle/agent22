@@ -78,7 +78,7 @@ func RunAgent(config AgentConfig) error {
 			return fmt.Errorf("sync base branch for issue %s: %w", issue.Key, err)
 		}
 
-		err := CheckoutOrCreateBranch(issue.Key)
+		err := CheckoutOrCreateBranch(issue.Key, config.GiteaBaseBranch)
 		if err != nil {
 			return fmt.Errorf("checkout/create branch for issue %s: %w", issue.Key, err)
 		}
