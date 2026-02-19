@@ -18,6 +18,7 @@ type AgentConfig struct {
 	JiraBaseURL    string `yaml:"JIRA_BASE_URL"`
 	JiraMaxResults int    `yaml:"JIRA_MAX_RESULTS"`
 	JiraPRStatus   string `yaml:"JIRA_PR_STATUS"`
+	JiraDoneStatus string `yaml:"JIRA_DONE_STATUS"`
 
 	MaxTries int `yaml:"MAX_TRIES"`
 
@@ -168,12 +169,13 @@ never run git clean (including -fd, -fdx, or -fdX) and never delete local config
 			config.JiraEmail,
 			config.JiraAPIToken,
 			issue.Key,
-			config.JiraPRStatus,
+			config.JiraDoneStatus,
 		); err != nil {
-			return fmt.Errorf("transition issue %s to %s: %w", issue.Key, config.JiraPRStatus, err)
+			return fmt.Errorf("transition issue %s to %s: %w", issue.Key, config.JiraDoneStatus, err)
 		}
 
-		fmt.Printf("Updated issue %s status to %s\n", issue.Key, config.JiraPRStatus)
+		fmt.Printf("Updated issue %s status to %s\n", issue.Key, config.JiraDoneStatus)
+		cache.Delete(issue.Key)
 
 		fmt.Printf("Changing branch back to main\n")
 
