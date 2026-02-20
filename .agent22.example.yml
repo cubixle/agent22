@@ -1,0 +1,19 @@
+***REMOVED***
+***REMOVED***
+
+***REMOVED***
+  email: "you@example.com"
+  api_token: ""
+  jql: "project = EXAMPLE AND status = 'ready'"
+  base_url: "https://your-org.atlassian.net"
+***REMOVED***
+***REMOVED***
+***REMOVED***
+
+***REMOVED***
+***REMOVED***
+***REMOVED***
+
+gitea_owner: "your-gitea-owner"
+gitea_token: ""
+gitea_base_url: "https://gitea.example.com"

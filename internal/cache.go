@@ -1,24 +1,24 @@
 package internal
 
 type ResultCache struct {
-	cache map[string]JiraIssue
+	cache map[string]Issue
 }
 
-func (r *ResultCache) Next() (JiraIssue, bool) {
+func (r *ResultCache) Next() (Issue, bool) {
 	for _, issue := range r.cache {
 		return issue, true
 	}
 
-	return JiraIssue{}, false
+	return Issue{}, false
 }
 
-func (r *ResultCache) Get(key string) (JiraIssue, bool) {
+func (r *ResultCache) Get(key string) (Issue, bool) {
 	issue, exists := r.cache[key]
 	return issue, exists
 }
 
-func (r *ResultCache) Fill(issues []JiraIssue) {
-	r.cache = make(map[string]JiraIssue)
+func (r *ResultCache) Fill(issues []Issue) {
+	r.cache = make(map[string]Issue)
 	for _, issue := range issues {
 		r.cache[issue.Key] = issue
 	}

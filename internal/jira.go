@@ -6,10 +6,38 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 )
+
+type JiraConfig struct {
+	Email      string `yaml:"email"`
+	APIToken   string `yaml:"api_token"`
+	JQL        string `yaml:"jql"`
+	BaseURL    string `yaml:"base_url"`
+	MaxResults int    `yaml:"max_results"`
+	PRStatus   string `yaml:"pr_status"`
+	DoneStatus string `yaml:"done_status"`
+}
+
+type JiraClient struct {
+	httpClient *http.Client
+	cfg        *JiraConfig
+	baseURL    string
+	email      string
+	apiToken   string
+}
+
+func NewJiraClient(httpClient *http.Client, cfg *JiraConfig) *JiraClient {
+	return &JiraClient{
+		httpClient: httpClient,
+		cfg:        cfg,
+		baseURL:    cfg.BaseURL,
+		email:      cfg.Email,
+		apiToken:   cfg.APIToken,
+	}
+}
 
 type JiraSearchRequest struct {
 	JQL        string   `json:"jql"`
@@ -18,7 +46,6 @@ type JiraSearchRequest struct {
 }
 
 type JiraSearchResponse struct {
-	Total  int         `json:"total"`
 	Issues []JiraIssue `json:"issues"`
 }
 
@@ -90,54 +117,64 @@ type jiraTransitionTarget struct {
 	ID string `json:"id"`
 }
 
-func SearchIssues(ctx context.Context, httpClient *http.Client, baseURL, email, apiToken string, payload JiraSearchRequest) ([]JiraIssue, error) {
-	body, err := json.Marshal(payload)
+func (c *JiraClient) SearchIssues(ctx context.Context) ([]Issue, error) {
+	issues, err := c.searchJiraIssues(ctx, JiraSearchRequest{
+		JQL:        c.cfg.JQL,
+		MaxResults: c.cfg.MaxResults,
+		Fields:     []string{"key", "summary", "status", "assignee", "priority", "description"},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]Issue, 0, len(issues))
+	for _, issue := range issues {
+		result = append(result, Issue{
+			ID:          issue.ID,
+			Key:         issue.Key,
+			Summary:     issue.Fields.Summary,
+			Status:      issue.Fields.Status.Name,
+			Description: issue.Fields.Description.PlainText(),
+		})
+	}
+
+	return result, nil
+}
+
+func (c *JiraClient) searchJiraIssues(ctx context.Context, payload JiraSearchRequest) ([]JiraIssue, error) {
+	searchPayload, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal jira search payload: %w", err)
 	}
 
-	log.Printf("Searching JIRA with JQL: %s", body)
-
-	endpoint := baseURL + "/rest/api/3/search/jql"
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create jira request: %w", err)
-	}
-
-	req.SetBasicAuth(email, apiToken)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("execute jira request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		rawBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("jira search failed: status=%s body=%s", resp.Status, strings.TrimSpace(string(rawBody)))
-	}
-
-	// log body
-	rawBody, _ := io.ReadAll(resp.Body)
+	slog.Debug("Searching JIRA", "jql_payload", string(searchPayload))
 
 	var result JiraSearchResponse
-	if err := json.Unmarshal(rawBody, &result); err != nil {
-		return nil, fmt.Errorf("decode jira response: %w", err)
+
+	endpoint := c.endpoint("search/jql")
+
+	if err := c.doJiraJSON(ctx, http.MethodPost, endpoint, payload, &result, "search"); err != nil {
+		return nil, err
 	}
 
 	return result.Issues, nil
 }
 
-func TransitionIssueToStatus(ctx context.Context, httpClient *http.Client, baseURL, email, apiToken, issueKey, targetStatus string) error {
+func (c *JiraClient) MarkIssueInProgress(ctx context.Context, issueKey string) error {
+	return c.transitionIssueToStatus(ctx, issueKey, c.cfg.PRStatus)
+}
+
+func (c *JiraClient) MarkIssueDone(ctx context.Context, issueKey string) error {
+	return c.transitionIssueToStatus(ctx, issueKey, c.cfg.DoneStatus)
+}
+
+func (c *JiraClient) transitionIssueToStatus(ctx context.Context, issueKey, targetStatus string) error {
 	status := strings.TrimSpace(targetStatus)
 	if status == "" {
 		return nil
 	}
 
-	transitions, err := getIssueTransitions(ctx, httpClient, baseURL, email, apiToken, issueKey)
+	transitions, err := c.getIssueTransitions(ctx, issueKey)
 	if err != nil {
 		return fmt.Errorf("get transitions: %w", err)
 	}
@@ -161,64 +198,80 @@ func TransitionIssueToStatus(ctx context.Context, httpClient *http.Client, baseU
 
 	payload := jiraTransitionRequest{Transition: jiraTransitionTarget{ID: transitionID}}
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal transition payload: %w", err)
-	}
+	endpoint := c.endpoint(fmt.Sprintf("issue/%s/transitions", issueKey))
 
-	endpoint := fmt.Sprintf("%s/rest/api/3/issue/%s/transitions", strings.TrimRight(baseURL, "/"), issueKey)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("create transition request: %w", err)
-	}
-
-	req.SetBasicAuth(email, apiToken)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("execute transition request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	rawBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("jira transition failed: status=%s body=%s", resp.Status, strings.TrimSpace(string(rawBody)))
+	if err := c.doJiraJSON(ctx, http.MethodPost, endpoint, payload, nil, "transition"); err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func getIssueTransitions(ctx context.Context, httpClient *http.Client, baseURL, email, apiToken, issueKey string) ([]jiraTransition, error) {
-	endpoint := fmt.Sprintf("%s/rest/api/3/issue/%s/transitions", strings.TrimRight(baseURL, "/"), issueKey)
+func (c *JiraClient) getIssueTransitions(ctx context.Context, issueKey string) ([]jiraTransition, error) {
+	endpoint := c.endpoint(fmt.Sprintf("issue/%s/transitions", issueKey))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
-	if err != nil {
-		return nil, fmt.Errorf("create transitions lookup request: %w", err)
+	var result jiraTransitionsResponse
+
+	if err := c.doJiraJSON(ctx, http.MethodGet, endpoint, nil, &result, "transitions lookup"); err != nil {
+		return nil, err
 	}
 
-	req.SetBasicAuth(email, apiToken)
+	return result.Transitions, nil
+}
+
+func (c *JiraClient) endpoint(resource string) string {
+	return fmt.Sprintf("%s/rest/api/3/%s", strings.TrimRight(c.baseURL, "/"), resource)
+}
+
+func (c *JiraClient) doJiraJSON(
+	ctx context.Context,
+	method, endpoint string,
+	payload, out any,
+	operation string,
+) error {
+	var body io.Reader = http.NoBody
+
+	if payload != nil {
+		rawBody, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("marshal jira %s payload: %w", operation, err)
+		}
+
+		body = bytes.NewReader(rawBody)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
+	if err != nil {
+		return fmt.Errorf("create jira %s request: %w", operation, err)
+	}
+
+	req.SetBasicAuth(c.email, c.apiToken)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := httpClient.Do(req)
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("execute transitions lookup request: %w", err)
+		return fmt.Errorf("execute jira %s request: %w", operation, err)
 	}
 	defer resp.Body.Close()
 
 	rawBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("jira transitions lookup failed: status=%s body=%s", resp.Status, strings.TrimSpace(string(rawBody)))
+		return fmt.Errorf("jira %s failed: status=%s body=%s", operation, resp.Status, strings.TrimSpace(string(rawBody)))
 	}
 
-	var result jiraTransitionsResponse
-	if err := json.Unmarshal(rawBody, &result); err != nil {
-		return nil, fmt.Errorf("decode transitions response: %w", err)
+	if out == nil || len(rawBody) == 0 {
+		return nil
 	}
 
-	return result.Transitions, nil
+	if err := json.Unmarshal(rawBody, out); err != nil {
+		return fmt.Errorf("decode jira %s response: %w", operation, err)
+	}
+
+	return nil
 }
 
 func findTransitionIDByStatus(transitions []jiraTransition, targetStatus string) (string, bool) {

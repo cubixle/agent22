@@ -1,58 +1,49 @@
 package main
 
 import (
+	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
-	"strings"
 
 	"gitea.lan/cubixle/agent/internal"
 	"gopkg.in/yaml.v3"
 )
 
 var banner = `
-   ###     ######   ######## ##    ## ########  #######   #######  
-  ## ##   ##    ##  ##       ###   ##    ##    ##     ## ##     ## 
- ##   ##  ##        ##       ####  ##    ##           ##        ## 
-##     ## ##   #### ######   ## ## ##    ##     #######   #######  
-######### ##    ##  ##       ##  ####    ##    ##        ##        
-##     ## ##    ##  ##       ##   ###    ##    ##        ##        
-##     ##  ######   ######## ##    ##    ##    ######### #########
+-------------------------------
+░█▀▀▄░█▀▀▀░█▀▀░█▀▀▄░▀█▀░█▀█░█▀█
+▒█▄▄█░█░▀▄░█▀▀░█░▒█░░█░░▒▄▀░▒▄▀
+▒█░▒█░▀▀▀▀░▀▀▀░▀░░▀░░▀░░█▄▄░█▄▄
+-------------------------------
+Created by Cubixle
 `
 
 func main() {
+	pullRequestMode := flag.Bool("pull-request-mode", false, "monitor Gitea pull request comments and apply changes via opencode")
+
+	flag.Parse()
+
 	fmt.Println(banner)
-	fmt.Println("------------------------------")
 
 	config, err := loadAgentConfig(".agent22.yml")
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("load config", "error", err)
+		os.Exit(1)
 	}
 
-	if config.MaxTries <= 0 {
-		config.MaxTries = 3
+	applyConfigDefaults(&config)
+
+	var runErr error
+	if *pullRequestMode {
+		runErr = internal.RunPullRequestMode(config)
+	} else {
+		runErr = internal.RunAgent(config)
 	}
 
-	if config.JiraMaxResults <= 0 {
-		config.JiraMaxResults = 5
-	}
-
-	if strings.TrimSpace(config.JiraDoneStatus) == "" {
-		config.JiraDoneStatus = strings.TrimSpace(config.JiraPRStatus)
-	}
-
-	if strings.TrimSpace(config.JiraDoneStatus) == "" {
-		config.JiraDoneStatus = "Done"
-	}
-
-	// print out none-sensitive config values for verification
-	fmt.Printf("JIRA Base URL: %s\n", config.JiraBaseURL)
-	fmt.Printf("JIRA JQL: %s\n", config.JiraJQL)
-	fmt.Printf("JIRA Done Status: %s\n", config.JiraDoneStatus)
-	fmt.Printf("Max Tries: %d\n", config.MaxTries)
-
-	if err := internal.RunAgent(config); err != nil {
-		log.Fatal(err)
+	if runErr != nil {
+		slog.Error("run agent", "error", runErr)
+		os.Exit(1)
 	}
 }
 
@@ -67,7 +58,11 @@ func loadAgentConfig(path string) (internal.AgentConfig, error) {
 		return internal.AgentConfig{}, fmt.Errorf("parse YAML config %s: %w", path, err)
 	}
 
-	config.JiraBaseURL = strings.TrimRight(config.JiraBaseURL, "/")
-
 	return config, nil
+}
+
+func applyConfigDefaults(config *internal.AgentConfig) {
+	if config.WaitTimeSeconds <= 0 {
+		config.WaitTimeSeconds = 30
+	}
 }
