@@ -5,26 +5,35 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"gitea.lan/cubixle/agent/internal"
 	"gopkg.in/yaml.v3"
 )
 
-var banner = `
--------------------------------
-░█▀▀▄░█▀▀▀░█▀▀░█▀▀▄░▀█▀░█▀█░█▀█
-▒█▄▄█░█░▀▄░█▀▀░█░▒█░░█░░▒▄▀░▒▄▀
-▒█░▒█░▀▀▀▀░▀▀▀░▀░░▀░░▀░░█▄▄░█▄▄
--------------------------------
-Created by Cubixle
-`
+var bannerLines = []string{
+	"-------------------------------",
+	"░█▀▀▄░█▀▀▀░█▀▀░█▀▀▄░▀█▀░█▀█░█▀█",
+	"▒█▄▄█░█░▀▄░█▀▀░█░▒█░░█░░▒▄▀░▒▄▀",
+	"▒█░▒█░▀▀▀▀░▀▀▀░▀░░▀░░▀░░█▄▄░█▄▄",
+	"-------------------------------",
+	"Created by Cubixle",
+}
+
+const (
+	ansiReset   = "\033[0m"
+	ansiBlue    = "\033[38;5;39m"
+	ansiCyan    = "\033[38;5;44m"
+	ansiGreen   = "\033[38;5;42m"
+	ansiSeafoam = "\033[38;5;49m"
+)
 
 func main() {
 	pullRequestMode := flag.Bool("pull-request-mode", false, "monitor Gitea pull request comments and apply changes via opencode")
 
 	flag.Parse()
 
-	fmt.Println(banner)
+	printBanner()
 
 	config, err := loadAgentConfig(".agent22.yml")
 	if err != nil {
@@ -65,4 +74,35 @@ func applyConfigDefaults(config *internal.AgentConfig) {
 	if config.WaitTimeSeconds <= 0 {
 		config.WaitTimeSeconds = 30
 	}
+}
+
+func printBanner() {
+	if !supportsANSIColor() {
+		fmt.Println(strings.Join(bannerLines, "\n"))
+		return
+	}
+
+	lineColors := []string{ansiBlue, ansiGreen, ansiSeafoam, ansiCyan, ansiBlue, ansiGreen}
+	for i, line := range bannerLines {
+		fmt.Printf("%s%s%s\n", lineColors[i], line, ansiReset)
+	}
+}
+
+func supportsANSIColor() bool {
+	stat, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+
+	if (stat.Mode() & os.ModeCharDevice) == 0 {
+		return false
+	}
+
+	if strings.TrimSpace(os.Getenv("NO_COLOR")) != "" {
+		return false
+	}
+
+	term := strings.TrimSpace(strings.ToLower(os.Getenv("TERM")))
+
+	return term != "" && term != "dumb"
 }

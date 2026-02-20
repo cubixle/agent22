@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type AgentConfig struct {
@@ -27,12 +28,13 @@ type AgentConfig struct {
 }
 
 func RunAgent(config AgentConfig) error {
+	if err := validateTicketModeConfig(config); err != nil {
+		return fmt.Errorf("validate ticket mode config: %w", err)
+	}
+
 	httpClient := &http.Client{Timeout: 20 * time.Second}
 
-	var tracker IssueProvider
-	if config.WorkProvider == "jira" {
-		tracker = NewJiraClient(httpClient, config.Jira)
-	}
+	var tracker IssueProvider = NewJiraClient(httpClient, config.Jira)
 
 	var scm PullRequestProvider = NewGiteaClient(httpClient, config.GiteaBaseURL, config.GiteaToken, config.GiteaOwner, config.GitRepo)
 
@@ -115,49 +117,49 @@ func processIssue(
 	slog.Debug("Changed branch\n", "branch name", issue.Key)
 
 	input := buildIssueOpencodeInput(issue)
-
-	taskBox := formatASCIIBox(fmt.Sprintf("task for %s", issue.Key), input)
-	slog.Debug("opencode input", "issue", issue.Key, "task", taskBox)
+	logPayloadMetadata("opencode task input", issue.Key, input)
 
 	outputStepf("Running opencode for issue %s", issue.Key)
 
 	opencodeOutputBytes, err := runOpencodeWithProgress(issue.Key, input)
 	if err != nil {
 		opencodeOutput := strings.TrimSpace(string(opencodeOutputBytes))
-		return fmt.Errorf("execute opencode for issue %s: %w (output: %s)", issue.Key, err, opencodeOutput)
+		return fmt.Errorf("execute opencode for issue %s: %w (output_chars=%d)", issue.Key, err, payloadCharCount(opencodeOutput))
 	}
 
 	opencodeOutput := strings.TrimSpace(string(opencodeOutputBytes))
-
-	outputInfof("Opencode output for issue %s:\n%s", issue.Key, opencodeOutput)
+	logPayloadMetadata("opencode task output", issue.Key, opencodeOutput)
+	outputInfof("Opencode output metadata for issue %s: chars=%d", issue.Key, payloadCharCount(opencodeOutput))
 
 	outputSuccessf("Executed opencode for issue %s", issue.Key)
 
 	reviewInput := buildIssuePostImplementationReviewInput(issue)
-	slog.Debug("issue post-implementation review input", "issue", issue.Key, "input", reviewInput)
+	logPayloadMetadata("post-implementation review input", issue.Key, reviewInput)
 	outputStepf("Running post-implementation review for issue %s", issue.Key)
 
 	reviewOutputBytes, err := runOpencodeWithProgress(issue.Key+"-review", reviewInput)
 	if err != nil {
 		reviewOutput := strings.TrimSpace(string(reviewOutputBytes))
-		return fmt.Errorf("review changes for issue %s: %w (output: %s)", issue.Key, err, reviewOutput)
+		return fmt.Errorf("review changes for issue %s: %w (output_chars=%d)", issue.Key, err, payloadCharCount(reviewOutput))
 	}
 
 	reviewOutput := strings.TrimSpace(string(reviewOutputBytes))
-	outputInfof("Post-implementation review output for issue %s:\n%s", issue.Key, reviewOutput)
+	logPayloadMetadata("post-implementation review output", issue.Key, reviewOutput)
+	outputInfof("Post-implementation review output metadata for issue %s: chars=%d", issue.Key, payloadCharCount(reviewOutput))
 
 	applyReviewInput := buildIssueApplyReviewInput(issue, reviewOutput)
-	slog.Debug("issue apply-review input", "issue", issue.Key, "input", applyReviewInput)
+	logPayloadMetadata("apply-review input", issue.Key, applyReviewInput)
 	outputStepf("Applying review feedback for issue %s", issue.Key)
 
 	applyReviewOutputBytes, err := runOpencodeWithProgress(issue.Key+"-apply-review", applyReviewInput)
 	if err != nil {
 		applyReviewOutput := strings.TrimSpace(string(applyReviewOutputBytes))
-		return fmt.Errorf("apply review feedback for issue %s: %w (output: %s)", issue.Key, err, applyReviewOutput)
+		return fmt.Errorf("apply review feedback for issue %s: %w (output_chars=%d)", issue.Key, err, payloadCharCount(applyReviewOutput))
 	}
 
 	applyReviewOutput := strings.TrimSpace(string(applyReviewOutputBytes))
-	outputInfof("Applied review feedback output for issue %s:\n%s", issue.Key, applyReviewOutput)
+	logPayloadMetadata("apply-review output", issue.Key, applyReviewOutput)
+	outputInfof("Applied review feedback output metadata for issue %s: chars=%d", issue.Key, payloadCharCount(applyReviewOutput))
 
 	if err := StageAndCommitChanges(issue.Key, issue.Summary); err != nil {
 		return fmt.Errorf("stage/commit changes for issue %s: %w", issue.Key, err)
@@ -245,40 +247,52 @@ func formatPullRequestBody(issueKey, issueSummary, opencodeOutput string) string
 	)
 }
 
-func formatASCIIBox(title, body string) string {
-	normalizedBody := strings.ReplaceAll(body, "\r\n", "\n")
-	lines := strings.Split(normalizedBody, "\n")
+func validateTicketModeConfig(config AgentConfig) error {
+	workProvider := strings.ToLower(strings.TrimSpace(config.WorkProvider))
+	if workProvider == "" {
+		return fmt.Errorf("work_provider is required")
+	}
 
-	trimmedTitle := strings.TrimSpace(title)
-	maxWidth := len(trimmedTitle)
+	if workProvider != "jira" {
+		return fmt.Errorf("unsupported work_provider %q: only jira is supported", config.WorkProvider)
+	}
 
-	for _, line := range lines {
-		if len(line) > maxWidth {
-			maxWidth = len(line)
+	if err := validateRequiredJiraFields(config.Jira); err != nil {
+		return fmt.Errorf("jira config: %w", err)
+	}
+
+	return nil
+}
+
+func validateRequiredJiraFields(jira *JiraConfig) error {
+	if jira == nil {
+		return fmt.Errorf("jira block is required")
+	}
+
+	requiredFields := []struct {
+		name  string
+		value string
+	}{
+		{name: "jira.base_url", value: jira.BaseURL},
+		{name: "jira.email", value: jira.Email},
+		{name: "jira.api_token", value: jira.APIToken},
+		{name: "jira.jql", value: jira.JQL},
+		{name: "jira.done_status", value: jira.DoneStatus},
+	}
+
+	for _, field := range requiredFields {
+		if strings.TrimSpace(field.value) == "" {
+			return fmt.Errorf("%s is required", field.name)
 		}
 	}
 
-	if maxWidth == 0 {
-		maxWidth = 1
-	}
+	return nil
+}
 
-	border := "+" + strings.Repeat("-", maxWidth+2) + "+"
+func logPayloadMetadata(label, issueKey, payload string) {
+	slog.Debug(label, "issue", issueKey, "chars", payloadCharCount(payload))
+}
 
-	var b strings.Builder
-	b.WriteString(border)
-	b.WriteString("\n")
-
-	if trimmedTitle != "" {
-		b.WriteString(fmt.Sprintf("| %-*s |\n", maxWidth, trimmedTitle))
-		b.WriteString(border)
-		b.WriteString("\n")
-	}
-
-	for _, line := range lines {
-		b.WriteString(fmt.Sprintf("| %-*s |\n", maxWidth, line))
-	}
-
-	b.WriteString(border)
-
-	return b.String()
+func payloadCharCount(payload string) int {
+	return utf8.RuneCountInString(strings.TrimSpace(payload))
 }
