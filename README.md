@@ -87,21 +87,21 @@ Copy `.agent22.example.yml` to `.agent22.yml` and fill in your values.
 Example:
 
 ```yaml
-***REMOVED***
-***REMOVED***
+work_provider: "jira"
+wait_time_seconds: 30
 
-***REMOVED***
+jira:
   email: "you@example.com"
   api_token: ""
   jql: "project = EXAMPLE AND status = 'ready'"
   base_url: "https://your-org.atlassian.net"
-***REMOVED***
-***REMOVED***
-***REMOVED***
+  max_results: 25
+  pr_status: "PR Ready"
+  done_status: "Done"
 
-***REMOVED***
-***REMOVED***
-***REMOVED***
+git_repo: "your-repo"
+git_base_branch: "main"
+git_remote: "origin"
 
 gitea_owner: "your-gitea-owner"
 gitea_token: ""
