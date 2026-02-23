@@ -13,6 +13,7 @@ import (
 
 type AgentConfig struct {
 	WorkProvider string `yaml:"work_provider"`
+	SCMProvider  string `yaml:"scm_provider"`
 
 	Jira *JiraConfig `yaml:"jira"`
 
@@ -25,6 +26,10 @@ type AgentConfig struct {
 	GiteaOwner   string `yaml:"gitea_owner"`
 	GiteaToken   string `yaml:"gitea_token"`
 	GiteaBaseURL string `yaml:"gitea_base_url"`
+
+	GitlabToken       string `yaml:"gitlab_token"`
+	GitlabBaseURL     string `yaml:"gitlab_base_url"`
+	GitlabProjectPath string `yaml:"gitlab_project_path"`
 }
 
 func RunAgent(config AgentConfig) error {
@@ -36,7 +41,10 @@ func RunAgent(config AgentConfig) error {
 
 	var tracker IssueProvider = NewJiraClient(httpClient, config.Jira)
 
-	var scm PullRequestProvider = NewGiteaClient(httpClient, config.GiteaBaseURL, config.GiteaToken, config.GiteaOwner, config.GitRepo)
+	scm, err := NewPullRequestProvider(httpClient, config)
+	if err != nil {
+		return fmt.Errorf("build pull request provider: %w", err)
+	}
 
 	cache := &ResultCache{}
 

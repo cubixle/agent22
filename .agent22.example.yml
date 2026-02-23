@@ -17,3 +17,8 @@
 gitea_owner: "your-gitea-owner"
 gitea_token: ""
 gitea_base_url: "https://gitea.example.com"
+
+scm_provider: "gitea"
+gitlab_token: ""
+gitlab_base_url: "https://gitlab.example.com"
+gitlab_project_path: "group/subgroup/project"

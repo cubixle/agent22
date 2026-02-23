@@ -4,7 +4,7 @@
 
 <h1 align="center">Agent22</h1>
 
-Agent22 is an opinionated Go automation service for handling JIRA tickets and Gitea pull requests with OpenCode. It runs as a continuous loop on a machine that has repository access, JIRA access, Gitea access, and `opencode` available.
+Agent22 is an opinionated Go automation service for handling JIRA tickets and pull/merge requests with OpenCode. It runs as a continuous loop on a machine that has repository access, JIRA access, SCM access (Gitea or GitLab), and `opencode` available.
 
 ## Why This Project Exists
 
@@ -29,7 +29,7 @@ Before running Agent22, make sure:
 Agent22 supports two modes:
 
 - `ticket mode` (default): polls JIRA and drives branch/PR automation from issues.
-- `pull request mode` (`--pull-request-mode`): monitors open Gitea pull requests and applies new review comments with OpenCode.
+- `pull request mode` (`--pull-request-mode`): monitors open pull/merge requests and applies new review comments with OpenCode.
 
 ## Ticket Mode Flow
 
@@ -48,7 +48,7 @@ For each matching JIRA issue, Agent22:
 7. Runs an OpenCode pass to apply valid review feedback.
 8. Stages and commits local changes (if any non-sensitive files changed).
 9. Pushes the issue branch.
-10. Creates a Gitea pull request (or reuses an existing open one).
+10. Creates a pull/merge request (or reuses an existing open one).
 11. Transitions the JIRA issue to the configured done status.
 12. Returns to the configured base branch and continues.
 
@@ -82,6 +82,7 @@ When started with `--pull-request-mode`, Agent22:
 
 - JIRA
 - Gitea
+- GitLab
 - OpenCode
 
 ## Configuration
@@ -92,6 +93,7 @@ Example:
 
 ```yaml
 work_provider: "jira"
+scm_provider: "gitea" # supported: gitea, gitlab
 wait_time_seconds: 30
 
 jira:
@@ -110,6 +112,10 @@ git_remote: "origin"
 gitea_owner: "your-gitea-owner"
 gitea_token: ""
 gitea_base_url: "https://gitea.example.com"
+
+gitlab_token: ""
+gitlab_base_url: "https://gitlab.example.com"
+gitlab_project_path: "group/subgroup/project"
 ```
 
 Notes:
@@ -117,6 +123,9 @@ Notes:
 - `wait_time_seconds` defaults to `30` when omitted or <= 0.
 - Polling in both modes uses exponential idle backoff (capped at 10 minutes) and resets after work is found.
 - `work_provider` currently supports `jira`.
+- `scm_provider` defaults to `gitea` when omitted.
+- For `gitea`, configure `gitea_owner`, `gitea_token`, and `gitea_base_url`.
+- For `gitlab`, configure `gitlab_token`, `gitlab_base_url`, and `gitlab_project_path`.
 
 ## Running
 
