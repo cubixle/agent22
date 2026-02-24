@@ -15,6 +15,10 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -
 
 FROM debian:bookworm-slim
 
+ARG OPENCODE_VERSION=1.2.10
+ARG OPENCODE_SHA256_AMD64=ebcc24012e8f067b10d7416430c88e9c429115ecfbccf8da9eb59db3b629a358
+ARG OPENCODE_SHA256_ARM64=d9a9d4f0bc1ed246258c0e8846e80593755a72bf4afd3940c4071d6f0b7b7775
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         bash \
@@ -24,7 +28,18 @@ RUN apt-get update \
         openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://opencode.ai/install | bash
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) opencode_asset="opencode-linux-x64.tar.gz"; opencode_sha256="$OPENCODE_SHA256_AMD64" ;; \
+        arm64) opencode_asset="opencode-linux-arm64.tar.gz"; opencode_sha256="$OPENCODE_SHA256_ARM64" ;; \
+        *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/${opencode_asset}" -o /tmp/opencode.tar.gz; \
+    echo "${opencode_sha256}  /tmp/opencode.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode; \
+    chmod +x /usr/local/bin/opencode; \
+    rm -f /tmp/opencode.tar.gz
 
 RUN useradd --create-home --shell /bin/bash agent22 \
     && mkdir -p /home/agent22/.local/share/opencode /home/agent22/.opencode /home/agent22/.ssh /workspace \
