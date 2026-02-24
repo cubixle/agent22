@@ -152,3 +152,34 @@ go run .
 # Pull request mode
 go run . --pull-request-mode
 ```
+
+## Docker
+
+The container image builds `agent22` with multi-architecture support (`linux/amd64` and `linux/arm64`) and includes:
+
+- `agent22` in `PATH`
+- `git`
+- `opencode` (pinned release artifact with SHA-256 verification)
+
+Preflight checklist:
+
+- `opencode auth` has been completed on the host.
+- `.agent22.yml` exists in the repository root (or set `AGENT22_CONFIG_PATH`).
+- SSH key and `known_hosts` are available (defaults: `$HOME/.ssh/id_ed25519` and `$HOME/.ssh/known_hosts`).
+- OpenCode auth file exists (default: `$HOME/.local/share/opencode/auth.json`, override with `AGENT22_OPENCODE_AUTH_PATH`).
+
+Build and run with Docker Compose:
+
+```bash
+docker compose build
+docker compose run --rm agent22
+```
+
+The provided `docker-compose.yml` mounts:
+
+- your repository to `/workspace`
+- one SSH key and `known_hosts` (defaults shown above)
+- your local `.agent22.yml` to `/workspace/.agent22.yml`
+- your OpenCode auth file from `$HOME/.local/share/opencode/auth.json`
+
+Optional: set `AGENT22_REPO_PATH`, `AGENT22_CONFIG_PATH`, `AGENT22_SSH_KEY_PATH`, `AGENT22_SSH_KNOWN_HOSTS_PATH`, and `AGENT22_OPENCODE_AUTH_PATH` to override defaults.
