@@ -13,7 +13,7 @@ import (
 
 type JiraConfig struct {
 	Email      string `yaml:"email"`
-	APIToken   string `yaml:"api_token"`
+	APIToken   string `yaml:"api_token"` //nolint:gosec // Jira API token is loaded from external configuration.
 	JQL        string `yaml:"jql"`
 	BaseURL    string `yaml:"base_url"`
 	MaxResults int    `yaml:"max_results"`
@@ -252,7 +252,7 @@ func (c *JiraClient) doJiraJSON(
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // endpoint is built from the configured Jira base URL.
 	if err != nil {
 		return fmt.Errorf("execute jira %s request: %w", operation, err)
 	}

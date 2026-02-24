@@ -353,7 +353,7 @@ func (c *GitLabClient) doJSON(
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // endpoint is built from the configured GitLab base URL.
 	if err != nil {
 		return fmt.Errorf("execute gitlab %s request: %w", operation, err)
 	}

@@ -114,7 +114,7 @@ func runCodingAgentCLIWithProgress(commandName string, commandArgs []string, dis
 	}
 }
 
-func parseCLICommand(raw, fallback string) (string, []string, error) {
+func parseCLICommand(raw, fallback string) (commandName string, commandArgs []string, err error) {
 	commandLine := strings.TrimSpace(raw)
 	if commandLine == "" {
 		commandLine = fallback
@@ -134,6 +134,7 @@ func parseCLICommand(raw, fallback string) (string, []string, error) {
 
 func splitCommandLine(commandLine string) ([]string, error) {
 	args := make([]string, 0, 4)
+
 	var token strings.Builder
 
 	inSingleQuote := false
@@ -144,6 +145,7 @@ func splitCommandLine(commandLine string) ([]string, error) {
 		switch {
 		case escaped:
 			token.WriteRune(r)
+
 			escaped = false
 		case r == '\\' && !inSingleQuote:
 			escaped = true
