@@ -34,62 +34,6 @@ func RunPullRequestMode(config AgentConfig) error {
 	})
 }
 
-func validatePullRequestModeConfig(config AgentConfig) error {
-	requiredFields := []struct {
-		name  string
-		value string
-	}{
-		{name: "git_base_branch", value: config.GitBaseBranch},
-		{name: "git_remote", value: config.GitRemote},
-	}
-
-	for _, field := range requiredFields {
-		if strings.TrimSpace(field.value) == "" {
-			return fmt.Errorf("%s is required in pull-request mode", field.name)
-		}
-	}
-
-	scmProvider := strings.ToLower(strings.TrimSpace(config.SCMProvider))
-
-	switch scmProvider {
-	case "", "gitea":
-		requiredGiteaFields := []struct {
-			name  string
-			value string
-		}{
-			{name: "gitea_base_url", value: config.GiteaBaseURL},
-			{name: "gitea_token", value: config.GiteaToken},
-			{name: "gitea_owner", value: config.GiteaOwner},
-			{name: "git_repo", value: config.GitRepo},
-		}
-
-		for _, field := range requiredGiteaFields {
-			if strings.TrimSpace(field.value) == "" {
-				return fmt.Errorf("%s is required for gitea scm_provider in pull-request mode", field.name)
-			}
-		}
-	case "gitlab":
-		requiredGitLabFields := []struct {
-			name  string
-			value string
-		}{
-			{name: "gitlab_base_url", value: config.GitlabBaseURL},
-			{name: "gitlab_token", value: config.GitlabToken},
-			{name: "gitlab_project_path", value: config.GitlabProjectPath},
-		}
-
-		for _, field := range requiredGitLabFields {
-			if strings.TrimSpace(field.value) == "" {
-				return fmt.Errorf("%s is required for gitlab scm_provider in pull-request mode", field.name)
-			}
-		}
-	default:
-		return fmt.Errorf("unsupported scm_provider %q: expected gitea or gitlab", config.SCMProvider)
-	}
-
-	return nil
-}
-
 func processPullRequestComments(
 	ctx context.Context,
 	scm PullRequestProvider,

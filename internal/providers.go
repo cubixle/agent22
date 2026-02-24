@@ -58,7 +58,21 @@ func NewPullRequestProvider(httpClient *http.Client, config AgentConfig) (PullRe
 		}
 
 		return NewGitLabClient(httpClient, config.GitlabBaseURL, config.GitlabToken, config.GitlabProjectPath), nil
+	case "github":
+		if strings.TrimSpace(config.GithubToken) == "" {
+			return nil, fmt.Errorf("github_token is required for github SCM provider")
+		}
+
+		if strings.TrimSpace(config.GithubOwner) == "" {
+			return nil, fmt.Errorf("github_owner is required for github SCM provider")
+		}
+
+		if strings.TrimSpace(config.GitRepo) == "" {
+			return nil, fmt.Errorf("git_repo is required for github SCM provider")
+		}
+
+		return NewGitHubClient(httpClient, config.GithubBaseURL, config.GithubToken, config.GithubOwner, config.GitRepo), nil
 	default:
-		return nil, fmt.Errorf("unsupported scm_provider %q: expected gitea or gitlab", config.SCMProvider)
+		return nil, fmt.Errorf("unsupported scm_provider %q: expected gitea, gitlab, or github", config.SCMProvider)
 	}
 }

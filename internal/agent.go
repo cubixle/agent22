@@ -30,6 +30,10 @@ type AgentConfig struct {
 	GitlabToken       string `yaml:"gitlab_token"`
 	GitlabBaseURL     string `yaml:"gitlab_base_url"`
 	GitlabProjectPath string `yaml:"gitlab_project_path"`
+
+	GithubOwner   string `yaml:"github_owner"`
+	GithubToken   string `yaml:"github_token"`
+	GithubBaseURL string `yaml:"github_base_url"`
 }
 
 func RunAgent(config AgentConfig) error {
@@ -253,48 +257,6 @@ func formatPullRequestBody(issueKey, issueSummary, opencodeOutput string) string
 		issueSummary,
 		output,
 	)
-}
-
-func validateTicketModeConfig(config AgentConfig) error {
-	workProvider := strings.ToLower(strings.TrimSpace(config.WorkProvider))
-	if workProvider == "" {
-		return fmt.Errorf("work_provider is required")
-	}
-
-	if workProvider != "jira" {
-		return fmt.Errorf("unsupported work_provider %q: only jira is supported", config.WorkProvider)
-	}
-
-	if err := validateRequiredJiraFields(config.Jira); err != nil {
-		return fmt.Errorf("jira config: %w", err)
-	}
-
-	return nil
-}
-
-func validateRequiredJiraFields(jira *JiraConfig) error {
-	if jira == nil {
-		return fmt.Errorf("jira block is required")
-	}
-
-	requiredFields := []struct {
-		name  string
-		value string
-	}{
-		{name: "jira.base_url", value: jira.BaseURL},
-		{name: "jira.email", value: jira.Email},
-		{name: "jira.api_token", value: jira.APIToken},
-		{name: "jira.jql", value: jira.JQL},
-		{name: "jira.done_status", value: jira.DoneStatus},
-	}
-
-	for _, field := range requiredFields {
-		if strings.TrimSpace(field.value) == "" {
-			return fmt.Errorf("%s is required", field.name)
-		}
-	}
-
-	return nil
 }
 
 func logPayloadMetadata(label, issueKey, payload string) {
