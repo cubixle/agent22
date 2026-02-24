@@ -166,6 +166,7 @@ Preflight checklist:
 - `opencode auth` has been completed on the host.
 - `.agent22.yml` exists in the repository root (or set `AGENT22_CONFIG_PATH`).
 - SSH key and `known_hosts` are available (defaults: `$HOME/.ssh/id_ed25519` and `$HOME/.ssh/known_hosts`).
+- The SSH key must already exist on the host and be registered in your Git provider account; the container only mounts it and does not generate keys.
 - OpenCode auth file exists (default: `$HOME/.local/share/opencode/auth.json`, override with `AGENT22_OPENCODE_AUTH_PATH`).
 
 Build and run with Docker Compose:
