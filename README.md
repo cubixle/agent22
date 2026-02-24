@@ -6,6 +6,8 @@
 
 Agent22 is an opinionated Go automation service for handling JIRA tickets and Gitea pull requests with OpenCode. It runs as a continuous loop on a machine that has repository access, JIRA access, Gitea access, and `opencode` available.
 
+[![Watch the Agent22 demo](.github/assets/agent22.png)](.github/assets/agent22.webm)
+
 ## Why This Project Exists
 
 Agent22 was created to reduce wasted tokens in workflows that are already well-defined and repetitive.
