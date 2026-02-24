@@ -313,3 +313,48 @@ func TestNewGitHubIssueClientTrimAndDeduplicateLabelsCaseInsensitive(t *testing.
 		t.Fatalf("SearchIssues() error = %v", err)
 	}
 }
+
+func TestGitHubIssueClientSearchIssuesSkipsInProgressAndDone(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Helper()
+
+		if r.Method != http.MethodGet {
+			t.Fatalf("method = %s, want GET", r.Method)
+		}
+
+		if r.URL.Path != "/repos/acme/repo/issues" {
+			t.Fatalf("request path = %q, want %q", r.URL.Path, "/repos/acme/repo/issues")
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"id": 1, "number": 101, "title": "Ready issue", "body": "body", "labels": [{"name": "ready"}]},
+			{"id": 2, "number": 102, "title": "In progress issue", "body": "body", "labels": [{"name": "ready"}, {"name": " in-progress "}]},
+			{"id": 3, "number": 103, "title": "Done issue", "body": "body", "labels": [{"name": "READY"}, {"name": "DONE"}]}
+		]`))
+	}))
+	defer server.Close()
+
+	client := agentinternal.NewGitHubIssueClient(server.Client(), server.URL, "token", "acme", "repo", &agentinternal.GitHubWorkConfig{
+		Labels:          []string{"ready"},
+		InProgressLabel: "in-progress",
+		DoneLabel:       "done",
+	})
+
+	issues, err := client.SearchIssues(ctx)
+	if err != nil {
+		t.Fatalf("SearchIssues() error = %v", err)
+	}
+
+	if len(issues) != 1 {
+		t.Fatalf("len(issues) = %d, want 1", len(issues))
+	}
+
+	if issues[0].Key != "GH-101" {
+		t.Fatalf("issue key = %q, want %q", issues[0].Key, "GH-101")
+	}
+}

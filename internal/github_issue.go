@@ -89,6 +89,10 @@ func (c *GitHubIssueClient) SearchIssues(ctx context.Context) ([]Issue, error) {
 			continue
 		}
 
+		if hasAnyGitHubIssueLabel(issue.Labels, c.inProgressLabel, c.doneLabel) {
+			continue
+		}
+
 		key := formatGitHubIssueKey(issue.Number)
 		issueNumbers[key] = issue.Number
 
@@ -189,6 +193,39 @@ func formatGitHubIssueStatus(labels []gitHubIssueLabel) string {
 	}
 
 	return strings.Join(statusLabels, ", ")
+}
+
+func hasAnyGitHubIssueLabel(labels []gitHubIssueLabel, expected ...string) bool {
+	if len(labels) == 0 || len(expected) == 0 {
+		return false
+	}
+
+	normalizedExpected := make(map[string]struct{}, len(expected))
+	for _, label := range expected {
+		normalized := strings.ToLower(strings.TrimSpace(label))
+		if normalized == "" {
+			continue
+		}
+
+		normalizedExpected[normalized] = struct{}{}
+	}
+
+	if len(normalizedExpected) == 0 {
+		return false
+	}
+
+	for _, label := range labels {
+		normalized := strings.ToLower(strings.TrimSpace(label.Name))
+		if normalized == "" {
+			continue
+		}
+
+		if _, ok := normalizedExpected[normalized]; ok {
+			return true
+		}
+	}
+
+	return false
 }
 
 func trimAndDeduplicateLabels(labels []string) []string {
