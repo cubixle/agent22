@@ -44,7 +44,7 @@ func buildIssueCodingAgentInput(issue Issue) string {
 
 func buildIssuePostImplementationReviewInput(issue Issue) string {
 	input := fmt.Sprintf(
-		"%s\n\n%s\n\nJIRA issue key:\n%s\n\nJIRA issue summary:\n%s\n\nReview the current local changes in this branch before push. Do not modify files in this step. Produce only review findings for a human engineer.",
+		"%s\n\n%s\n\nIssue key:\n%s\n\nIssue summary:\n%s\n\nReview the current local changes in this branch before push. Do not modify files in this step. Produce only review findings for a human engineer.",
 		codingAgentSafetyInstructions,
 		humanReadableReviewOutputInstructions,
 		issue.Key,
@@ -61,7 +61,7 @@ func buildIssueApplyReviewInput(issue Issue, reviewOutput string) string {
 	}
 
 	input := fmt.Sprintf(
-		"%s\n\nJIRA issue key:\n%s\n\nJIRA issue summary:\n%s\n\nApply the following review feedback to the current branch. Implement only concrete fixes. If there are no valid findings, keep files unchanged.\n\nReview feedback:\n%s",
+		"%s\n\nIssue key:\n%s\n\nIssue summary:\n%s\n\nApply the following review feedback to the current branch. Implement only concrete fixes. If there are no valid findings, keep files unchanged.\n\nReview feedback:\n%s",
 		codingAgentSafetyInstructions,
 		issue.Key,
 		issue.Summary,

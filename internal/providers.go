@@ -22,6 +22,26 @@ type PullRequestProvider interface {
 	CreatePullRequestComment(ctx context.Context, pullNumber int, body string) error
 }
 
+func NewIssueProvider(httpClient *http.Client, config AgentConfig) (IssueProvider, error) {
+	workProvider := strings.ToLower(strings.TrimSpace(config.WorkProvider))
+
+	switch workProvider {
+	case "", "jira":
+		return NewJiraClient(httpClient, config.Jira), nil
+	case "github":
+		return NewGitHubIssueClient(
+			httpClient,
+			config.GithubBaseURL,
+			config.GithubToken,
+			config.GithubOwner,
+			config.GitRepo,
+			config.GitHubWork,
+		), nil
+	default:
+		return nil, fmt.Errorf("unsupported work_provider %q: expected jira or github", config.WorkProvider)
+	}
+}
+
 func NewPullRequestProvider(httpClient *http.Client, config AgentConfig) (PullRequestProvider, error) {
 	scmProvider := strings.ToLower(strings.TrimSpace(config.SCMProvider))
 

@@ -16,7 +16,8 @@ type AgentConfig struct {
 	SCMProvider         string `yaml:"scm_provider"`
 	CodingAgentProvider string `yaml:"coding_agent_provider"`
 
-	Jira *JiraConfig `yaml:"jira"`
+	Jira       *JiraConfig       `yaml:"jira"`
+	GitHubWork *GitHubWorkConfig `yaml:"github_work"`
 
 	WaitTimeSeconds int `yaml:"wait_time_seconds"`
 
@@ -46,7 +47,10 @@ func RunAgent(config AgentConfig) error {
 
 	httpClient := &http.Client{Timeout: 20 * time.Second}
 
-	var tracker IssueProvider = NewJiraClient(httpClient, config.Jira)
+	tracker, err := NewIssueProvider(httpClient, config)
+	if err != nil {
+		return fmt.Errorf("build issue provider: %w", err)
+	}
 
 	scm, err := NewPullRequestProvider(httpClient, config)
 	if err != nil {
@@ -61,7 +65,7 @@ func RunAgent(config AgentConfig) error {
 	cache := &ResultCache{}
 
 	return runPollingEventLoop(pollingEventLoopConfig{
-		Name:        "jira issue",
+		Name:        "work item",
 		BaseWait:    time.Duration(config.WaitTimeSeconds) * time.Second,
 		MaxIdleWait: 10 * time.Minute,
 	}, func(ctx context.Context) (bool, error) {
@@ -121,6 +125,11 @@ func processIssue(
 	cache *ResultCache,
 	issue Issue,
 ) error {
+	if err := tracker.MarkIssueInProgress(ctx, issue.Key); err != nil {
+		slog.Warn("Failed to transition issue to in-progress", "issue", issue.Key, "error", err)
+		outputWarnf("Unable to mark issue %s as in progress; continuing", issue.Key)
+	}
+
 	if err := SyncBaseBranch(config.GitRemote, config.GitBaseBranch); err != nil {
 		return fmt.Errorf("sync base branch for issue %s: %w", issue.Key, err)
 	}

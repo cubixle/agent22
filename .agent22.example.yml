@@ -1,26 +1,33 @@
-***REMOVED***
-***REMOVED***
+work_provider: "jira" # supported: jira, github
+scm_provider: "gitea" # supported: gitea, gitlab, github
+coding_agent_provider: "opencode" # supported: opencode, cursor
+wait_time_seconds: 30
 
-***REMOVED***
+# Optional when coding_agent_provider is "cursor"
+# cursor_cli_command: "cursor-agent"
+
+jira:
   email: "you@example.com"
   api_token: ""
   jql: "project = EXAMPLE AND status = 'ready'"
   base_url: "https://your-org.atlassian.net"
-***REMOVED***
-***REMOVED***
-***REMOVED***
+  max_results: 25
+  pr_status: "PR Ready"
+  done_status: "Done"
 
-***REMOVED***
-***REMOVED***
-***REMOVED***
+github_work:
+  labels: ["ready"]
+  in_progress_label: "in-progress"
+  done_label: "done"
+
+git_repo: "your-repo"
+git_base_branch: "main"
+git_remote: "origin"
 
 gitea_owner: "your-gitea-owner"
 gitea_token: ""
 gitea_base_url: "https://gitea.example.com"
 
-scm_provider: "gitea"
-coding_agent_provider: "opencode"
-# cursor_cli_command: "cursor-agent" # also supports args, e.g. "bunx cursor-agent --profile ci"
 gitlab_token: ""
 gitlab_base_url: "https://gitlab.example.com"
 gitlab_project_path: "group/subgroup/project"
