@@ -6,6 +6,10 @@
 
 Agent22 is an opinionated Go automation service for handling work items and pull/merge requests with a CLI coding agent. It runs as a continuous loop on a machine that has repository access, work-provider access (JIRA or GitHub Issues), SCM access (Gitea, GitLab, or GitHub), and a supported coding-agent CLI available.
 
+## Mirror Notice
+
+This repository is a read-only mirror of a personal Gitea instance.
+
 [![Watch the Agent22 demo](.github/assets/agent22.png)](.github/assets/agent22.webm)
 
 ## Why This Project Exists
