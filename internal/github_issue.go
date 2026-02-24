@@ -134,7 +134,7 @@ func (c *GitHubIssueClient) addIssueLabel(ctx context.Context, issueKey, label, 
 
 	issueNumber, err := c.resolveIssueNumber(issueKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve github issue number for %s: %w", operation, err)
 	}
 
 	endpoint := c.client.repoEndpoint(fmt.Sprintf("issues/%d/labels", issueNumber))
@@ -149,24 +149,32 @@ func (c *GitHubIssueClient) addIssueLabel(ctx context.Context, issueKey, label, 
 }
 
 func (c *GitHubIssueClient) resolveIssueNumber(issueKey string) (int, error) {
-	if number, ok := c.issueNumbers[issueKey]; ok {
+	normalizedKey, err := normalizeGitHubIssueKey(issueKey)
+	if err != nil {
+		return 0, err
+	}
+
+	if number, ok := c.issueNumbers[normalizedKey]; ok {
 		return number, nil
 	}
 
+	return 0, fmt.Errorf("unknown github issue key %q: not found in current search results", issueKey)
+}
+
+func normalizeGitHubIssueKey(issueKey string) (string, error) {
 	trimmed := strings.TrimSpace(issueKey)
-	trimmed = strings.TrimPrefix(trimmed, "#")
-
-	upper := strings.ToUpper(trimmed)
-	if strings.HasPrefix(upper, gitHubIssueKeyPrefix) {
-		trimmed = strings.TrimSpace(trimmed[len(gitHubIssueKeyPrefix):])
+	if !strings.HasPrefix(trimmed, gitHubIssueKeyPrefix) {
+		return "", fmt.Errorf("parse github issue key %q: expected %s<number>", issueKey, gitHubIssueKeyPrefix)
 	}
 
-	number, err := strconv.Atoi(trimmed)
+	numberPart := strings.TrimSpace(strings.TrimPrefix(trimmed, gitHubIssueKeyPrefix))
+
+	number, err := strconv.Atoi(numberPart)
 	if err != nil {
-		return 0, fmt.Errorf("parse github issue key %q: %w", issueKey, err)
+		return "", fmt.Errorf("parse github issue key %q: %w", issueKey, err)
 	}
 
-	return number, nil
+	return formatGitHubIssueKey(number), nil
 }
 
 func formatGitHubIssueKey(issueNumber int) string {

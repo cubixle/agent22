@@ -10,6 +10,7 @@ import (
 
 const codingAgentSafetyInstructions = `
 do not interact with GIT directly.
+you may run read-only git status and git diff when reviewing local changes.
 do not ask for human input.
 never run git clean (including -fd, -fdx, or -fdX) and never delete local config files like .env* or .agent22.yml.
 `
