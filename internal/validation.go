@@ -12,12 +12,17 @@ func validateTicketModeConfig(config AgentConfig) error {
 		return fmt.Errorf("work_provider is required")
 	}
 
-	if workProvider != "jira" {
-		return fmt.Errorf("unsupported work_provider %q: only jira is supported", config.WorkProvider)
-	}
-
-	if err := validateRequiredJiraFields(config.Jira); err != nil {
-		return fmt.Errorf("jira config: %w", err)
+	switch workProvider {
+	case "jira":
+		if err := validateRequiredJiraFields(config.Jira); err != nil {
+			return fmt.Errorf("jira config: %w", err)
+		}
+	case "github":
+		if err := validateRequiredGitHubIssueFields(config); err != nil {
+			return fmt.Errorf("github config: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported work_provider %q: expected jira or github", config.WorkProvider)
 	}
 
 	if err := validateSharedSCMConfig(config); err != nil {
@@ -151,6 +156,34 @@ func validateRequiredJiraFields(jira *JiraConfig) error {
 		if strings.TrimSpace(field.value) == "" {
 			return fmt.Errorf("%s is required", field.name)
 		}
+	}
+
+	return nil
+}
+
+func validateRequiredGitHubIssueFields(config AgentConfig) error {
+	if config.GitHubWork == nil {
+		return fmt.Errorf("github_work block is required")
+	}
+
+	requiredGitHubFields := []struct {
+		name  string
+		value string
+	}{
+		{name: "github_owner", value: config.GithubOwner},
+		{name: "github_token", value: config.GithubToken},
+		{name: "git_repo", value: config.GitRepo},
+		{name: "github_work.done_label", value: config.GitHubWork.DoneLabel},
+	}
+
+	for _, field := range requiredGitHubFields {
+		if strings.TrimSpace(field.value) == "" {
+			return fmt.Errorf("%s is required", field.name)
+		}
+	}
+
+	if len(trimAndDeduplicateLabels(config.GitHubWork.Labels)) == 0 {
+		return fmt.Errorf("github_work.labels must contain at least one label")
 	}
 
 	return nil

@@ -4,7 +4,7 @@
 
 <h1 align="center">Agent22</h1>
 
-Agent22 is an opinionated Go automation service for handling JIRA tickets and pull/merge requests with a CLI coding agent. It runs as a continuous loop on a machine that has repository access, JIRA access, SCM access (Gitea or GitLab), and a supported coding-agent CLI available.
+Agent22 is an opinionated Go automation service for handling work items and pull/merge requests with a CLI coding agent. It runs as a continuous loop on a machine that has repository access, work-provider access (JIRA or GitHub Issues), SCM access (Gitea, GitLab, or GitHub), and a supported coding-agent CLI available.
 
 [![Watch the Agent22 demo](.github/assets/agent22.png)](.github/assets/agent22.webm)
 
@@ -30,14 +30,14 @@ Before running Agent22, make sure:
 
 Agent22 supports two modes:
 
-- `ticket mode` (default): polls JIRA and drives branch/PR automation from issues.
+- `ticket mode` (default): polls the configured work provider and drives branch/PR automation from issues.
 - `pull request mode` (`--pull-request-mode`): monitors open pull/merge requests and applies new review comments with the configured coding agent.
 
 ## Ticket Mode Flow
 
-For each matching JIRA issue, Agent22:
+For each matching issue, Agent22:
 
-1. Searches JIRA using your configured JQL.
+1. Searches your configured work provider (JIRA JQL or GitHub issue labels).
 2. Syncs the base branch locally.
 3. Creates or checks out an issue branch (`<ISSUE-KEY>`).
 4. Builds a coding-agent prompt from:
@@ -51,7 +51,7 @@ For each matching JIRA issue, Agent22:
 8. Stages and commits local changes (if any non-sensitive files changed).
 9. Pushes the issue branch.
 10. Creates a pull/merge request (or reuses an existing open one).
-11. Transitions the JIRA issue to the configured done status.
+11. Marks the issue as done (JIRA transition or GitHub done label).
 12. Returns to the configured base branch and continues.
 
 ### Ticket Filtering
@@ -77,12 +77,13 @@ When started with `--pull-request-mode`, Agent22:
 
 ## Console Output
 
-- The JIRA task prompt is displayed in an ASCII box for easier visual scanning.
+- The issue task prompt is displayed in an ASCII box for easier visual scanning.
 - Coding-agent execution uses a progress bar and spinner.
 
 ## Integrations
 
 - JIRA
+- GitHub Issues
 - Gitea
 - GitLab
 - GitHub
@@ -96,7 +97,7 @@ Copy `.agent22.example.yml` to `.agent22.yml` and fill in your values.
 Example:
 
 ```yaml
-work_provider: "jira"
+work_provider: "jira" # supported: jira, github
 scm_provider: "gitea" # supported: gitea, gitlab, github
 coding_agent_provider: "opencode" # supported: opencode, cursor
 wait_time_seconds: 30
@@ -112,6 +113,11 @@ jira:
   max_results: 25
   pr_status: "PR Ready"
   done_status: "Done"
+
+github_work:
+  labels: ["ready"]
+  in_progress_label: "in-progress"
+  done_label: "done"
 
 git_repo: "your-repo"
 git_base_branch: "main"
@@ -134,9 +140,11 @@ Notes:
 
 - `wait_time_seconds` defaults to `30` when omitted or <= 0.
 - Polling in both modes uses exponential idle backoff (capped at 10 minutes) and resets after work is found.
-- `work_provider` currently supports `jira`.
+- `work_provider` supports `jira` and `github`.
 - `scm_provider` defaults to `gitea` when omitted.
 - `coding_agent_provider` defaults to `opencode` when omitted.
+- For `work_provider: "jira"`, configure the `jira` block (`base_url`, `email`, `api_token`, `jql`, and `done_status`).
+- For `work_provider: "github"`, configure `github_owner`, `github_token`, `git_repo`, and `github_work.labels` + `github_work.done_label`.
 - For `gitea`, configure `gitea_owner`, `gitea_token`, and `gitea_base_url`.
 - For `gitlab`, configure `gitlab_token`, `gitlab_base_url`, and `gitlab_project_path`.
 - For `github`, configure `github_owner`, `github_token`, and `git_repo` (optionally `github_base_url` for GitHub Enterprise).
