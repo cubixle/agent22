@@ -24,6 +24,10 @@ func validateTicketModeConfig(config AgentConfig) error {
 		return fmt.Errorf("scm config: %w", err)
 	}
 
+	if err := validateCodingAgentConfig(config); err != nil {
+		return fmt.Errorf("coding agent config: %w", err)
+	}
+
 	return nil
 }
 
@@ -32,7 +36,28 @@ func validatePullRequestModeConfig(config AgentConfig) error {
 		return fmt.Errorf("scm config: %w", err)
 	}
 
+	if err := validateCodingAgentConfig(config); err != nil {
+		return fmt.Errorf("coding agent config: %w", err)
+	}
+
 	return nil
+}
+
+func validateCodingAgentConfig(config AgentConfig) error {
+	provider := strings.ToLower(strings.TrimSpace(config.CodingAgentProvider))
+
+	switch provider {
+	case "", codingAgentProviderOpencode:
+		return nil
+	case codingAgentProviderCursor:
+		if _, _, err := parseCLICommand(config.CursorCLICommand, "cursor-agent"); err != nil {
+			return fmt.Errorf("invalid cursor_cli_command: %w", err)
+		}
+
+		return nil
+	default:
+		return fmt.Errorf("unsupported coding_agent_provider %q: expected opencode or cursor", config.CodingAgentProvider)
+	}
 }
 
 func validateSharedSCMConfig(config AgentConfig) error {

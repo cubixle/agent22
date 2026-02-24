@@ -31,6 +31,21 @@ func TestRunModeConfigValidationUsesSharedSCMRules(t *testing.T) {
 			},
 			expectedError: "scm config: github_owner is required for github scm_provider",
 		},
+		{
+			name: "unsupported coding agent provider",
+			mutate: func(cfg *agentinternal.AgentConfig) {
+				cfg.CodingAgentProvider = "bad"
+			},
+			expectedError: "coding agent config: unsupported coding_agent_provider \"bad\": expected opencode or cursor",
+		},
+		{
+			name: "invalid cursor command format",
+			mutate: func(cfg *agentinternal.AgentConfig) {
+				cfg.CodingAgentProvider = "cursor"
+				cfg.CursorCLICommand = "cursor-agent \"broken"
+			},
+			expectedError: "coding agent config: invalid cursor_cli_command: command contains an unclosed quote",
+		},
 	}
 
 	for _, tc := range tests {
