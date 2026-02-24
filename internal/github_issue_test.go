@@ -332,9 +332,10 @@ func TestGitHubIssueClientSearchIssuesSkipsInProgressAndDone(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`[
-			{"id": 1, "number": 101, "title": "Ready issue", "body": "body", "labels": [{"name": "ready"}]},
-			{"id": 2, "number": 102, "title": "In progress issue", "body": "body", "labels": [{"name": "ready"}, {"name": " in-progress "}]},
-			{"id": 3, "number": 103, "title": "Done issue", "body": "body", "labels": [{"name": "READY"}, {"name": "DONE"}]}
+			{"id": 1, "number": 101, "state": "open", "title": "Ready issue", "body": "body", "labels": [{"name": "ready"}]},
+			{"id": 2, "number": 102, "state": "open", "title": "In progress issue", "body": "body", "labels": [{"name": "ready"}, {"name": " in-progress "}]},
+			{"id": 3, "number": 103, "state": "open", "title": "Done issue", "body": "body", "labels": [{"name": "READY"}, {"name": "DONE"}]},
+			{"id": 4, "number": 104, "state": "closed", "title": "Closed issue", "body": "body", "labels": [{"name": "ready"}]}
 		]`))
 	}))
 	defer server.Close()

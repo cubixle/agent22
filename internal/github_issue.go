@@ -31,6 +31,7 @@ type GitHubIssueClient struct {
 type gitHubIssueResponse struct {
 	ID          int64              `json:"id"`
 	Number      int                `json:"number"`
+	State       string             `json:"state"`
 	Title       string             `json:"title"`
 	Body        string             `json:"body"`
 	Labels      []gitHubIssueLabel `json:"labels"`
@@ -85,6 +86,10 @@ func (c *GitHubIssueClient) SearchIssues(ctx context.Context) ([]Issue, error) {
 	issueNumbers := make(map[string]int, len(issues))
 
 	for _, issue := range issues {
+		if !isOpenGitHubIssue(issue.State) {
+			continue
+		}
+
 		if issue.PullRequest != nil {
 			continue
 		}
@@ -226,6 +231,15 @@ func hasAnyGitHubIssueLabel(labels []gitHubIssueLabel, expected ...string) bool 
 	}
 
 	return false
+}
+
+func isOpenGitHubIssue(state string) bool {
+	trimmed := strings.TrimSpace(state)
+	if trimmed == "" {
+		return true
+	}
+
+	return strings.EqualFold(trimmed, "open")
 }
 
 func trimAndDeduplicateLabels(labels []string) []string {
