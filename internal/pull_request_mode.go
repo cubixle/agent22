@@ -34,14 +34,6 @@ func RunPullRequestMode(config AgentConfig) error {
 	})
 }
 
-func validatePullRequestModeConfig(config AgentConfig) error {
-	if err := validateSharedSCMConfig(config); err != nil {
-		return fmt.Errorf("scm config: %w", err)
-	}
-
-	return nil
-}
-
 func processPullRequestComments(
 	ctx context.Context,
 	scm PullRequestProvider,
