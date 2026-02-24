@@ -22,3 +22,7 @@ scm_provider: "gitea"
 gitlab_token: ""
 gitlab_base_url: "https://gitlab.example.com"
 gitlab_project_path: "group/subgroup/project"
+
+github_owner: "your-github-org"
+github_token: ""
+github_base_url: "https://api.github.com"

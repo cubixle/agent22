@@ -30,6 +30,10 @@ type AgentConfig struct {
 	GitlabToken       string `yaml:"gitlab_token"`
 	GitlabBaseURL     string `yaml:"gitlab_base_url"`
 	GitlabProjectPath string `yaml:"gitlab_project_path"`
+
+	GithubOwner   string `yaml:"github_owner"`
+	GithubToken   string `yaml:"github_token"`
+	GithubBaseURL string `yaml:"github_base_url"`
 }
 
 func RunAgent(config AgentConfig) error {

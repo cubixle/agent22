@@ -83,8 +83,23 @@ func validatePullRequestModeConfig(config AgentConfig) error {
 				return fmt.Errorf("%s is required for gitlab scm_provider in pull-request mode", field.name)
 			}
 		}
+	case "github":
+		requiredGitHubFields := []struct {
+			name  string
+			value string
+		}{
+			{name: "github_token", value: config.GithubToken},
+			{name: "github_owner", value: config.GithubOwner},
+			{name: "git_repo", value: config.GitRepo},
+		}
+
+		for _, field := range requiredGitHubFields {
+			if strings.TrimSpace(field.value) == "" {
+				return fmt.Errorf("%s is required for github scm_provider in pull-request mode", field.name)
+			}
+		}
 	default:
-		return fmt.Errorf("unsupported scm_provider %q: expected gitea or gitlab", config.SCMProvider)
+		return fmt.Errorf("unsupported scm_provider %q: expected gitea, gitlab, or github", config.SCMProvider)
 	}
 
 	return nil

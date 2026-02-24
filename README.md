@@ -85,6 +85,7 @@ When started with `--pull-request-mode`, Agent22:
 - JIRA
 - Gitea
 - GitLab
+- GitHub
 - OpenCode
 
 ## Configuration
@@ -95,7 +96,7 @@ Example:
 
 ```yaml
 work_provider: "jira"
-scm_provider: "gitea" # supported: gitea, gitlab
+scm_provider: "gitea" # supported: gitea, gitlab, github
 wait_time_seconds: 30
 
 jira:
@@ -118,6 +119,10 @@ gitea_base_url: "https://gitea.example.com"
 gitlab_token: ""
 gitlab_base_url: "https://gitlab.example.com"
 gitlab_project_path: "group/subgroup/project"
+
+github_owner: "your-github-org"
+github_token: ""
+github_base_url: "https://api.github.com"
 ```
 
 Notes:
@@ -128,6 +133,7 @@ Notes:
 - `scm_provider` defaults to `gitea` when omitted.
 - For `gitea`, configure `gitea_owner`, `gitea_token`, and `gitea_base_url`.
 - For `gitlab`, configure `gitlab_token`, `gitlab_base_url`, and `gitlab_project_path`.
+- For `github`, configure `github_owner`, `github_token`, and `git_repo` (optionally `github_base_url` for GitHub Enterprise).
 
 ## Running
 
