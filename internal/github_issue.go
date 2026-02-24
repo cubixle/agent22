@@ -25,7 +25,8 @@ type GitHubIssueClient struct {
 	labels          []string
 	inProgressLabel string
 	doneLabel       string
-	issueNumbers    map[string]int
+	// issueNumbers caches keys from the latest SearchIssues call; callers are expected to use this client from a single goroutine.
+	issueNumbers map[string]int
 }
 
 type gitHubIssueResponse struct {
@@ -163,11 +164,11 @@ func (c *GitHubIssueClient) resolveIssueNumber(issueKey string) (int, error) {
 
 func normalizeGitHubIssueKey(issueKey string) (string, error) {
 	trimmed := strings.TrimSpace(issueKey)
-	if !strings.HasPrefix(trimmed, gitHubIssueKeyPrefix) {
+	if len(trimmed) < len(gitHubIssueKeyPrefix) || !strings.EqualFold(trimmed[:len(gitHubIssueKeyPrefix)], gitHubIssueKeyPrefix) {
 		return "", fmt.Errorf("parse github issue key %q: expected %s<number>", issueKey, gitHubIssueKeyPrefix)
 	}
 
-	numberPart := strings.TrimSpace(strings.TrimPrefix(trimmed, gitHubIssueKeyPrefix))
+	numberPart := strings.TrimSpace(trimmed[len(gitHubIssueKeyPrefix):])
 
 	number, err := strconv.Atoi(numberPart)
 	if err != nil {

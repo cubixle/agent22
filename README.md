@@ -6,7 +6,8 @@
 
 Agent22 is an opinionated Go automation service for handling work items and pull/merge requests with a CLI coding agent. It runs as a continuous loop on a machine that has repository access, work-provider access (JIRA or GitHub Issues), SCM access (Gitea, GitLab, or GitHub), and a supported coding-agent CLI available.
 
-> Note: this GitHub repository is a mirror of the primary repository hosted on a personal Gitea instance.
+> Note: this GitHub repository is a read-only mirror of the primary repository hosted on a personal Gitea instance.
+> For canonical updates, releases, and source of truth, use the Gitea repository.
 
 [![Watch the Agent22 demo](.github/assets/agent22.png)](.github/assets/agent22.webm)
 
@@ -147,6 +148,7 @@ Notes:
 - `coding_agent_provider` defaults to `opencode` when omitted.
 - For `work_provider: "jira"`, configure the `jira` block (`base_url`, `email`, `api_token`, `jql`, and `done_status`).
 - For `work_provider: "github"`, configure `github_owner`, `github_token`, `git_repo`, and `github_work.labels` + `github_work.done_label`.
+- GitHub issue keys are normalized to the canonical `GH-<number>` format (for example, `gh-42` resolves to `GH-42`).
 - For `gitea`, configure `gitea_owner`, `gitea_token`, and `gitea_base_url`.
 - For `gitlab`, configure `gitlab_token`, `gitlab_base_url`, and `gitlab_project_path`.
 - For `github`, configure `github_owner`, `github_token`, and `git_repo` (optionally `github_base_url` for GitHub Enterprise).

@@ -86,7 +86,7 @@ func TestGitHubIssueClientSearchAndMarkDone(t *testing.T) {
 	}
 }
 
-func TestGitHubIssueClientMarkDoneStrictIssueKeyFormat(t *testing.T) {
+func TestGitHubIssueClientMarkDoneIssueKeyParsing(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -114,7 +114,7 @@ func TestGitHubIssueClientMarkDoneStrictIssueKeyFormat(t *testing.T) {
 		{
 			name:          "lowercase prefix",
 			issueKey:      "gh-42",
-			expectedError: "expected GH-<number>",
+			expectedError: `unknown github issue key "gh-42"`,
 		},
 		{
 			name:          "non numeric suffix",
@@ -131,6 +131,79 @@ func TestGitHubIssueClientMarkDoneStrictIssueKeyFormat(t *testing.T) {
 			err := client.MarkIssueDone(ctx, tc.issueKey)
 			if err == nil || !strings.Contains(err.Error(), tc.expectedError) {
 				t.Fatalf("MarkIssueDone() error = %v, want contains %q", err, tc.expectedError)
+			}
+		})
+	}
+}
+
+func TestGitHubIssueClientMarkIssueInProgressErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	tests := []struct {
+		name          string
+		issueKey      string
+		handler       http.HandlerFunc
+		expectedError string
+	}{
+		{
+			name:     "unknown issue key",
+			issueKey: "GH-999",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`[
+					{"id": 1, "number": 101, "title": "Issue 101", "body": "Body", "labels": [{"name": "ready"}]}
+				]`))
+			},
+			expectedError: `resolve github issue number for in-progress label update: unknown github issue key "GH-999"`,
+		},
+		{
+			name:     "label update non 2xx",
+			issueKey: "GH-101",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case http.MethodGet:
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`[
+						{"id": 1, "number": 101, "title": "Issue 101", "body": "Body", "labels": [{"name": "ready"}]}
+					]`))
+				case http.MethodPost:
+					w.WriteHeader(http.StatusUnauthorized)
+					_, _ = w.Write([]byte("bad token"))
+				default:
+					w.WriteHeader(http.StatusMethodNotAllowed)
+				}
+			},
+			expectedError: "github in-progress label update failed: status=401 Unauthorized body=bad token",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Helper()
+				assertGitHubRequestHeaders(t, r)
+				tc.handler(w, r)
+			}))
+			defer server.Close()
+
+			client := agentinternal.NewGitHubIssueClient(server.Client(), server.URL, "token", "acme", "repo", &agentinternal.GitHubWorkConfig{
+				Labels:          []string{"ready"},
+				InProgressLabel: "in-progress",
+				DoneLabel:       "done",
+			})
+
+			if _, err := client.SearchIssues(ctx); err != nil {
+				t.Fatalf("SearchIssues() error = %v", err)
+			}
+
+			err := client.MarkIssueInProgress(ctx, tc.issueKey)
+			if err == nil || !strings.Contains(err.Error(), tc.expectedError) {
+				t.Fatalf("MarkIssueInProgress() error = %v, want contains %q", err, tc.expectedError)
 			}
 		})
 	}
