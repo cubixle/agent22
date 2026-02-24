@@ -23,6 +23,11 @@ func RunPullRequestMode(config AgentConfig) error {
 		return fmt.Errorf("build pull request provider: %w", err)
 	}
 
+	codingAgent, err := NewCodingAgentProvider(config)
+	if err != nil {
+		return fmt.Errorf("build coding agent provider: %w", err)
+	}
+
 	seenCommentsByPR := make(map[int]map[string]struct{})
 
 	return runPollingEventLoop(pollingEventLoopConfig{
@@ -30,13 +35,14 @@ func RunPullRequestMode(config AgentConfig) error {
 		BaseWait:    time.Duration(config.WaitTimeSeconds) * time.Second,
 		MaxIdleWait: 10 * time.Minute,
 	}, func(ctx context.Context) (bool, error) {
-		return processPullRequestComments(ctx, scm, config, seenCommentsByPR)
+		return processPullRequestComments(ctx, scm, codingAgent, config, seenCommentsByPR)
 	})
 }
 
 func processPullRequestComments(
 	ctx context.Context,
 	scm PullRequestProvider,
+	codingAgent CodingAgentProvider,
 	config AgentConfig,
 	seenCommentsByPR map[int]map[string]struct{},
 ) (bool, error) {
@@ -53,7 +59,7 @@ func processPullRequestComments(
 	hadWork := false
 
 	for _, pr := range pulls {
-		processedAny, err := processPullRequest(ctx, scm, config, pr, seenCommentsByPR)
+		processedAny, err := processPullRequest(ctx, scm, codingAgent, config, pr, seenCommentsByPR)
 		if err != nil {
 			return false, fmt.Errorf("process pull request #%d: %w", pr.Number, err)
 		}
@@ -69,6 +75,7 @@ func processPullRequestComments(
 func processPullRequest(
 	ctx context.Context,
 	scm PullRequestProvider,
+	codingAgent CodingAgentProvider,
 	config AgentConfig,
 	pr PullRequest,
 	seenCommentsByPR map[int]map[string]struct{},
@@ -88,7 +95,7 @@ func processPullRequest(
 			return false, nil
 		}
 
-		if err := runPreemptivePullRequestReview(ctx, scm, config, pr); err != nil {
+		if err := runPreemptivePullRequestReview(ctx, scm, codingAgent, config, pr); err != nil {
 			return false, fmt.Errorf("run preemptive review for pull request #%d: %w", pr.Number, err)
 		}
 
@@ -111,7 +118,7 @@ func processPullRequest(
 			continue
 		}
 
-		if err := applyPullRequestComment(config, pr, comment); err != nil {
+		if err := applyPullRequestComment(codingAgent, config, pr, comment); err != nil {
 			return false, fmt.Errorf("apply comment %d for pull request #%d: %w", comment.ID, pr.Number, err)
 		}
 
@@ -122,7 +129,7 @@ func processPullRequest(
 	return hadWork, nil
 }
 
-func applyPullRequestComment(config AgentConfig, pr PullRequest, comment PullRequestComment) error {
+func applyPullRequestComment(codingAgent CodingAgentProvider, config AgentConfig, pr PullRequest, comment PullRequestComment) error {
 	slog.Info("Detected new pull request comment", "pr_number", pr.Number, "head_branch", pr.HeadBranch, "comment_id", comment.ID)
 
 	if strings.TrimSpace(pr.HeadBranch) == "" {
@@ -156,14 +163,14 @@ func applyPullRequestComment(config AgentConfig, pr PullRequest, comment PullReq
 		return nil
 	}
 
-	input := buildPullRequestCommentOpencodeInput(pr, comment)
+	input := buildPullRequestCommentCodingAgentInput(pr, comment)
 
-	outputStepf("Running opencode for pull request #%d comment %d", pr.Number, comment.ID)
+	outputStepf("Running %s for pull request #%d comment %d", codingAgent.DisplayName(), pr.Number, comment.ID)
 
-	opencodeOutputBytes, err := runOpencodeWithProgress(fmt.Sprintf("PR-%d", pr.Number), input)
+	codingAgentOutputBytes, err := codingAgent.RunWithProgress(fmt.Sprintf("PR-%d", pr.Number), input)
 	if err != nil {
-		opencodeOutput := strings.TrimSpace(string(opencodeOutputBytes))
-		return fmt.Errorf("execute opencode for pull request #%d comment %d: %w (output: %s)", pr.Number, comment.ID, err, opencodeOutput)
+		codingAgentOutput := strings.TrimSpace(string(codingAgentOutputBytes))
+		return fmt.Errorf("execute %s for pull request #%d comment %d: %w (output: %s)", codingAgent.Name(), pr.Number, comment.ID, err, codingAgentOutput)
 	}
 
 	if err := StageAndCommitChanges(fmt.Sprintf("PR-%d", pr.Number), fmt.Sprintf("Address PR comment #%d [pr-comment-id:%d]", comment.ID, comment.ID)); err != nil {
@@ -182,6 +189,7 @@ func applyPullRequestComment(config AgentConfig, pr PullRequest, comment PullReq
 func runPreemptivePullRequestReview(
 	ctx context.Context,
 	scm PullRequestProvider,
+	codingAgent CodingAgentProvider,
 	config AgentConfig,
 	pr PullRequest,
 ) error {
@@ -207,15 +215,15 @@ func runPreemptivePullRequestReview(
 	}()
 
 	input := buildPullRequestPreemptiveReviewInput(pr)
-	outputStepf("Running preemptive opencode review for pull request #%d", pr.Number)
+	outputStepf("Running preemptive %s review for pull request #%d", codingAgent.DisplayName(), pr.Number)
 
-	opencodeOutputBytes, err := runOpencodeWithProgress(fmt.Sprintf("PR-%d-review", pr.Number), input)
+	codingAgentOutputBytes, err := codingAgent.RunWithProgress(fmt.Sprintf("PR-%d-review", pr.Number), input)
 	if err != nil {
-		opencodeOutput := strings.TrimSpace(string(opencodeOutputBytes))
-		return fmt.Errorf("execute preemptive opencode review for pull request #%d: %w (output: %s)", pr.Number, err, opencodeOutput)
+		codingAgentOutput := strings.TrimSpace(string(codingAgentOutputBytes))
+		return fmt.Errorf("execute preemptive %s review for pull request #%d: %w (output: %s)", codingAgent.Name(), pr.Number, err, codingAgentOutput)
 	}
 
-	reviewComment := formatPreemptiveReviewComment(string(opencodeOutputBytes))
+	reviewComment := formatPreemptiveReviewComment(string(codingAgentOutputBytes), codingAgent.DisplayName())
 	if err := scm.CreatePullRequestComment(ctx, pr.Number, reviewComment); err != nil {
 		return fmt.Errorf("post preemptive review comment to pull request #%d: %w", pr.Number, err)
 	}

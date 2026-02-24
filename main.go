@@ -29,7 +29,7 @@ const (
 )
 
 func main() {
-	pullRequestMode := flag.Bool("pull-request-mode", false, "monitor pull/merge request comments and apply changes via opencode")
+	pullRequestMode := flag.Bool("pull-request-mode", false, "monitor pull/merge request comments and apply changes via configured coding agent")
 
 	flag.Parse()
 

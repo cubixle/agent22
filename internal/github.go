@@ -114,12 +114,7 @@ func (c *GitHubClient) FindOpenPullRequest(ctx context.Context, headBranch, base
 }
 
 func (c *GitHubClient) CreatePullRequest(ctx context.Context, payload PullRequestCreateInput) (PullRequest, error) {
-	pr, err := c.createPullRequest(ctx, gitHubPullRequestCreateRequest{
-		Title: payload.Title,
-		Body:  payload.Body,
-		Head:  payload.Head,
-		Base:  payload.Base,
-	})
+	pr, err := c.createPullRequest(ctx, gitHubPullRequestCreateRequest(payload))
 	if err != nil {
 		return PullRequest{}, err
 	}
@@ -329,7 +324,7 @@ func (c *GitHubClient) doJSON(
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // endpoint is built from the configured GitHub base URL.
 	if err != nil {
 		return fmt.Errorf("execute github %s request: %w", operation, err)
 	}

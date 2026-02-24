@@ -12,8 +12,9 @@ import (
 )
 
 type AgentConfig struct {
-	WorkProvider string `yaml:"work_provider"`
-	SCMProvider  string `yaml:"scm_provider"`
+	WorkProvider        string `yaml:"work_provider"`
+	SCMProvider         string `yaml:"scm_provider"`
+	CodingAgentProvider string `yaml:"coding_agent_provider"`
 
 	Jira *JiraConfig `yaml:"jira"`
 
@@ -34,6 +35,8 @@ type AgentConfig struct {
 	GithubOwner   string `yaml:"github_owner"`
 	GithubToken   string `yaml:"github_token"`
 	GithubBaseURL string `yaml:"github_base_url"`
+
+	CursorCLICommand string `yaml:"cursor_cli_command"`
 }
 
 func RunAgent(config AgentConfig) error {
@@ -50,6 +53,11 @@ func RunAgent(config AgentConfig) error {
 		return fmt.Errorf("build pull request provider: %w", err)
 	}
 
+	codingAgent, err := NewCodingAgentProvider(config)
+	if err != nil {
+		return fmt.Errorf("build coding agent provider: %w", err)
+	}
+
 	cache := &ResultCache{}
 
 	return runPollingEventLoop(pollingEventLoopConfig{
@@ -57,7 +65,7 @@ func RunAgent(config AgentConfig) error {
 		BaseWait:    time.Duration(config.WaitTimeSeconds) * time.Second,
 		MaxIdleWait: 10 * time.Minute,
 	}, func(ctx context.Context) (bool, error) {
-		return processIssueTick(ctx, config, tracker, scm, cache)
+		return processIssueTick(ctx, config, tracker, scm, codingAgent, cache)
 	})
 }
 
@@ -66,6 +74,7 @@ func processIssueTick(
 	config AgentConfig,
 	tracker IssueProvider,
 	scm PullRequestProvider,
+	codingAgent CodingAgentProvider,
 	cache *ResultCache,
 ) (bool, error) {
 	if cache.IsEmpty() {
@@ -96,7 +105,7 @@ func processIssueTick(
 		return true, nil
 	}
 
-	if err := processIssue(ctx, config, tracker, scm, cache, issue); err != nil {
+	if err := processIssue(ctx, config, tracker, scm, codingAgent, cache, issue); err != nil {
 		return false, err
 	}
 
@@ -108,6 +117,7 @@ func processIssue(
 	config AgentConfig,
 	tracker IssueProvider,
 	scm PullRequestProvider,
+	codingAgent CodingAgentProvider,
 	cache *ResultCache,
 	issue Issue,
 ) error {
@@ -128,28 +138,28 @@ func processIssue(
 
 	slog.Debug("Changed branch\n", "branch name", issue.Key)
 
-	input := buildIssueOpencodeInput(issue)
-	logPayloadMetadata("opencode task input", issue.Key, input)
+	input := buildIssueCodingAgentInput(issue)
+	logPayloadMetadata(codingAgent.DisplayName()+" task input", issue.Key, input)
 
-	outputStepf("Running opencode for issue %s", issue.Key)
+	outputStepf("Running %s for issue %s", codingAgent.DisplayName(), issue.Key)
 
-	opencodeOutputBytes, err := runOpencodeWithProgress(issue.Key, input)
+	codingAgentOutputBytes, err := codingAgent.RunWithProgress(issue.Key, input)
 	if err != nil {
-		opencodeOutput := strings.TrimSpace(string(opencodeOutputBytes))
-		return fmt.Errorf("execute opencode for issue %s: %w (output_chars=%d)", issue.Key, err, payloadCharCount(opencodeOutput))
+		codingAgentOutput := strings.TrimSpace(string(codingAgentOutputBytes))
+		return fmt.Errorf("execute %s for issue %s: %w (output_chars=%d)", codingAgent.Name(), issue.Key, err, payloadCharCount(codingAgentOutput))
 	}
 
-	opencodeOutput := strings.TrimSpace(string(opencodeOutputBytes))
-	logPayloadMetadata("opencode task output", issue.Key, opencodeOutput)
-	outputInfof("Opencode output metadata for issue %s: chars=%d", issue.Key, payloadCharCount(opencodeOutput))
+	codingAgentOutput := strings.TrimSpace(string(codingAgentOutputBytes))
+	logPayloadMetadata(codingAgent.DisplayName()+" task output", issue.Key, codingAgentOutput)
+	outputInfof("%s output metadata for issue %s: chars=%d", codingAgent.DisplayName(), issue.Key, payloadCharCount(codingAgentOutput))
 
-	outputSuccessf("Executed opencode for issue %s", issue.Key)
+	outputSuccessf("Executed %s for issue %s", codingAgent.DisplayName(), issue.Key)
 
 	reviewInput := buildIssuePostImplementationReviewInput(issue)
 	logPayloadMetadata("post-implementation review input", issue.Key, reviewInput)
 	outputStepf("Running post-implementation review for issue %s", issue.Key)
 
-	reviewOutputBytes, err := runOpencodeWithProgress(issue.Key+"-review", reviewInput)
+	reviewOutputBytes, err := codingAgent.RunWithProgress(issue.Key+"-review", reviewInput)
 	if err != nil {
 		reviewOutput := strings.TrimSpace(string(reviewOutputBytes))
 		return fmt.Errorf("review changes for issue %s: %w (output_chars=%d)", issue.Key, err, payloadCharCount(reviewOutput))
@@ -163,7 +173,7 @@ func processIssue(
 	logPayloadMetadata("apply-review input", issue.Key, applyReviewInput)
 	outputStepf("Applying review feedback for issue %s", issue.Key)
 
-	applyReviewOutputBytes, err := runOpencodeWithProgress(issue.Key+"-apply-review", applyReviewInput)
+	applyReviewOutputBytes, err := codingAgent.RunWithProgress(issue.Key+"-apply-review", applyReviewInput)
 	if err != nil {
 		applyReviewOutput := strings.TrimSpace(string(applyReviewOutputBytes))
 		return fmt.Errorf("apply review feedback for issue %s: %w (output_chars=%d)", issue.Key, err, payloadCharCount(applyReviewOutput))
@@ -193,7 +203,7 @@ func processIssue(
 	} else {
 		pr, err := scm.CreatePullRequest(ctx, PullRequestCreateInput{
 			Title: fmt.Sprintf("%s: %s", issue.Key, issue.Summary),
-			Body:  formatPullRequestBody(issue.Key, issue.Summary, opencodeOutput),
+			Body:  formatPullRequestBody(issue.Key, issue.Summary, codingAgentOutput, codingAgent.DisplayName()),
 			Head:  issue.Key,
 			Base:  config.GitBaseBranch,
 		})
@@ -240,8 +250,8 @@ func skipIssue(cache *ResultCache, issueKey, reason string) bool {
 	return true
 }
 
-func formatPullRequestBody(issueKey, issueSummary, opencodeOutput string) string {
-	output := strings.TrimSpace(opencodeOutput)
+func formatPullRequestBody(issueKey, issueSummary, codingAgentOutput, codingAgentName string) string {
+	output := strings.TrimSpace(codingAgentOutput)
 	if output == "" {
 		output = "(no output)"
 	}
@@ -252,9 +262,10 @@ func formatPullRequestBody(issueKey, issueSummary, opencodeOutput string) string
 	}
 
 	return fmt.Sprintf(
-		"Automated merge request for %s\n\n## Description\n%s\n\n## Opencode output\n\n```text\n%s\n```",
+		"Automated merge request for %s\n\n## Description\n%s\n\n## %s output\n\n```text\n%s\n```",
 		issueKey,
 		issueSummary,
+		codingAgentName,
 		output,
 	)
 }
