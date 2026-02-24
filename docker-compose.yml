@@ -10,8 +10,18 @@ services:
       - GIT_SSH_COMMAND=ssh -i /home/agent22/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
     volumes:
       - ${AGENT22_REPO_PATH:-.}:/workspace
-      - ${AGENT22_SSH_KEY_PATH:-${HOME}/.ssh/id_ed25519}:/home/agent22/.ssh/id_ed25519:ro
-      - ${AGENT22_SSH_KNOWN_HOSTS_PATH:-${HOME}/.ssh/known_hosts}:/home/agent22/.ssh/known_hosts:ro
+      - type: bind
+        source: ${AGENT22_SSH_KEY_PATH:-${HOME}/.ssh/id_ed25519}
+        target: /home/agent22/.ssh/id_ed25519
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AGENT22_SSH_KNOWN_HOSTS_PATH:-${HOME}/.ssh/known_hosts}
+        target: /home/agent22/.ssh/known_hosts
+        read_only: true
+        bind:
+          create_host_path: false
       - ${AGENT22_CONFIG_PATH:-./.agent22.yml}:/workspace/.agent22.yml:ro
       - ${AGENT22_OPENCODE_AUTH_PATH:-${HOME}/.local/share/opencode/auth.json}:/home/agent22/.local/share/opencode/auth.json:ro
     stdin_open: true
